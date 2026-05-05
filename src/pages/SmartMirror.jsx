@@ -64,7 +64,11 @@ const SmartMirror = () => {
   const [enabledApps, setEnabledApps] = useState([]);
   const [generalSettings, setGeneralSettings] = useState(() => getGeneralSettings());
   const containerRef = useRef(null);
-  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0, detected: false });
+  const cursorPositionRef  = useRef({ x: 0, y: 0, detected: false });
+  const cursorDetectedRef  = useRef(false);
+  const [isHandDetected, setIsHandDetected] = useState(false);
+  const lastHoverCheckRef  = useRef(0);
+  const lastSleepResetRef  = useRef(0);
   const [handTrackingEnabled, setHandTrackingEnabled] = useState(true); // start true — camera needed for face recognition from first frame
   const [isDragging, setIsDragging] = useState(false);
   const [dragTarget, setDragTarget] = useState(null);
@@ -212,7 +216,9 @@ const SmartMirror = () => {
       sleepStateRef.current = 'sleeping';
       clearDragState();
       setHoveredAppId(null);
-      setCursorPosition(prev => ({ ...prev, detected: false }));
+      cursorPositionRef.current = { ...cursorPositionRef.current, detected: false };
+      cursorDetectedRef.current = false;
+      setIsHandDetected(false);
       setSleepState('sleeping');
       setWakeCircle(null);
       wakeGestureStageRef.current = 'idle';
@@ -370,14 +376,6 @@ const SmartMirror = () => {
         return localEnabled(app.id);
       });
 
-      console.log('[SmartMirror] Widget visibility (backend:', hasBackend, '):', {
-        datetime: localEnabled('datetime'),
-        weather:  localEnabled('weather'),
-        news:     localEnabled('news'),
-        gmail:    localEnabled('gmail') || (hasBackend && integrations.gmail.connected),
-        spotify:  localEnabled('spotify') || (hasBackend && integrations.spotify.connected),
-      });
-
       setEnabledApps(visible);
       setGeneralSettings(getGeneralSettings());
 
@@ -463,7 +461,12 @@ const SmartMirror = () => {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleHandPosition = (position) => {
-    setCursorPosition(position);
+    // Update ref without triggering a React re-render; CursorOverlay reads this via RAF.
+    cursorPositionRef.current = position;
+    if (position.detected !== cursorDetectedRef.current) {
+      cursorDetectedRef.current = position.detected;
+      setIsHandDetected(position.detected);
+    }
 
     if (sleepState !== 'awake') {
       if (sleepState === 'sleeping') {
@@ -518,7 +521,11 @@ const SmartMirror = () => {
     }
 
     if (generalSettings.mirrorTimeoutEnabled && position.detected) {
-      resetSleepTimer();
+      const nowMs = performance.now();
+      if (nowMs - lastSleepResetRef.current >= 1000) {
+        lastSleepResetRef.current = nowMs;
+        resetSleepTimer();
+      }
     }
 
     if (!generalSettings.widgetHoverHighlight || !handTrackingEnabled) {
@@ -526,28 +533,32 @@ const SmartMirror = () => {
         setHoveredAppId(null);
       }
     } else if (position.detected) {
-      const allApps = document.querySelectorAll('[data-app-id]');
-      let targetAppId = null;
-      let highestZIndex = -Infinity;
+      const nowMs = performance.now();
+      if (nowMs - lastHoverCheckRef.current >= 200) {
+        lastHoverCheckRef.current = nowMs;
+        const allApps = document.querySelectorAll('[data-app-id]');
+        let targetAppId = null;
+        let highestZIndex = -Infinity;
 
-      allApps.forEach(app => {
-        const rect = app.getBoundingClientRect();
-        const isUnderCursor = position.x >= rect.left &&
-          position.x <= rect.right &&
-          position.y >= rect.top &&
-          position.y <= rect.bottom;
+        allApps.forEach(app => {
+          const rect = app.getBoundingClientRect();
+          const isUnderCursor = position.x >= rect.left &&
+            position.x <= rect.right &&
+            position.y >= rect.top &&
+            position.y <= rect.bottom;
 
-        if (isUnderCursor) {
-          const zIndex = parseInt(window.getComputedStyle(app).zIndex) || 0;
-          if (zIndex >= highestZIndex) {
-            highestZIndex = zIndex;
-            targetAppId = app.dataset.appId;
+          if (isUnderCursor) {
+            const zIndex = parseInt(window.getComputedStyle(app).zIndex) || 0;
+            if (zIndex >= highestZIndex) {
+              highestZIndex = zIndex;
+              targetAppId = app.dataset.appId;
+            }
           }
-        }
-      });
+        });
 
-      if (targetAppId !== hoveredAppId) {
-        setHoveredAppId(targetAppId);
+        if (targetAppId !== hoveredAppId) {
+          setHoveredAppId(targetAppId);
+        }
       }
     } else if (hoveredAppId !== null) {
       setHoveredAppId(null);
@@ -915,7 +926,7 @@ const SmartMirror = () => {
       {/* Face recognition badge */}
       {handTrackingEnabled && faceStatus !== 'idle' && (
         <div
-          className="fixed top-6 z-[1000] flex items-center gap-2 px-3 py-2 rounded-full border backdrop-blur-xl transition-all duration-500"
+          className="fixed top-6 z-[1000] flex items-center gap-2 px-3 py-2 rounded-full border"
           style={{
             right: activeUser ? '13rem' : '1.5rem',
             borderColor: faceStatus === 'recognized'
@@ -1015,10 +1026,10 @@ const SmartMirror = () => {
 
       {/* Hand tracking cursor overlay */}
       <CursorOverlay
-        position={cursorPosition}
+        positionRef={cursorPositionRef}
         isVisible={
           handTrackingEnabled &&
-          cursorPosition.detected &&
+          isHandDetected &&
           (sleepState === 'awake' || (sleepState === 'sleeping' && sleepWakeCursorVisible))
         }
         isDragging={isDragging}

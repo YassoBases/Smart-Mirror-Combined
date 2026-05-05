@@ -65,8 +65,8 @@ const QUALITY_PRESETS = {
 };
 
 const getQualityPreset = (settings = {}) => {
-  const quality = settings.preprocessingQuality || 'medium';
-  return QUALITY_PRESETS[quality] || QUALITY_PRESETS.medium;
+  const quality = settings.preprocessingQuality || 'low';
+  return QUALITY_PRESETS[quality] || QUALITY_PRESETS.low;
 };
 
 const getTargetDimensions = (videoElement, preset) => {
@@ -101,7 +101,7 @@ export const getHandTrackingRuntimeConfig = (settings = {}) => {
   const preset = getQualityPreset(settings);
   return {
     options: {
-      maxNumHands: 2,
+      maxNumHands: 1,
       modelComplexity: preset.modelComplexity,
       minDetectionConfidence: clampConfidence(settings.minDetectionConfidence, 0.5),
       minTrackingConfidence: clampConfidence(settings.minTrackingConfidence, 0.5)

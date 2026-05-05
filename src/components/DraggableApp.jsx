@@ -161,7 +161,7 @@ const DraggableApp = ({
       onClick={(e) => { e.stopPropagation(); onActivate?.(); }}
     >
       <div
-        className="w-full h-full bg-black/75 backdrop-blur-xl overflow-hidden transition-shadow duration-300"
+        className="w-full h-full bg-black/80 overflow-hidden"
         style={{
           cursor: isDragging ? 'grabbing' : 'grab',
           border: isActive

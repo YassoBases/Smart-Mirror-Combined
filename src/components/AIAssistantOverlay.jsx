@@ -77,7 +77,7 @@ export default function AIAssistantOverlay({ assistant }) {
   return (
     <div
       className="absolute inset-0 z-[999] flex flex-col items-center justify-center"
-      style={{ backdropFilter: 'blur(16px)', background: 'rgba(0,0,0,0.35)' }}
+      style={{ background: 'rgba(0,0,0,0.80)' }}
     >
       {/* Animated orb */}
       <div

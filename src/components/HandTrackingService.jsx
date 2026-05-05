@@ -34,7 +34,7 @@ const clamp01 = (value) => Math.min(Math.max(value, 0), 1);
 const FPS_SMOOTHING = 0.9;
 
 const FACE_MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
-const FACE_DETECT_INTERVAL_MS = 1500;
+const FACE_DETECT_INTERVAL_MS = 3000;
 
 const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, enabled }) => {
   const videoRef = useRef(null);
@@ -536,7 +536,7 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
       }}
     >
       <div 
-        className="bg-black/80 backdrop-blur-sm rounded-lg p-2 cursor-move select-none"
+        className="bg-black/90 rounded-lg p-2 cursor-move select-none"
         onMouseDown={handleMouseDown}
       >
         <div className="text-white text-xs mb-2 text-center">Hand Tracking Preview</div>
