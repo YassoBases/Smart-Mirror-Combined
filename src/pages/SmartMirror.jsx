@@ -20,6 +20,10 @@ import NewsApp from '../apps/NewsApp';
 import SpotifyApp from '../apps/spotify/App';
 import GmailApp from '../apps/gmail/GmailApp';
 
+// Module-level flag: survives React Router navigations within the same SPA session.
+// Reset only on full page reload (F5), which is the correct time to show the welcome again.
+let _mirrorWelcomeShown = false;
+
 const RESIZE_ZONE = 60;           // px from bottom-right corner that triggers gesture resize
 const DRAG_COMMIT_TIME_MS = 200;  // ms of sustained pinch before committing to drag/resize
 const DRAG_COMMIT_DISTANCE_PX = 20; // px of movement before committing (whichever comes first)
@@ -88,14 +92,14 @@ const SmartMirror = () => {
   const sleepWakeLastPositionRef = useRef(null);
   const [sleepWakeCursorVisible, setSleepWakeCursorVisible] = useState(false);
 
-  // ── Welcome screen — only once per browser session ───────────────────────
-  const alreadySeen = sessionStorage.getItem('sm_welcomed') === '1';
-  const [welcomeVisible, setWelcomeVisible] = useState(!alreadySeen);
+  // ── Welcome screen — only once per SPA session ───────────────────────────
+  // _mirrorWelcomeShown is module-level so it survives React Router navigations.
+  const [welcomeVisible, setWelcomeVisible] = useState(!_mirrorWelcomeShown);
   const [welcomeFadingOut, setWelcomeFadingOut] = useState(false);
 
   useEffect(() => {
-    if (alreadySeen) return;
-    sessionStorage.setItem('sm_welcomed', '1');
+    if (_mirrorWelcomeShown) return;
+    _mirrorWelcomeShown = true;
     const fadeTimer = setTimeout(() => setWelcomeFadingOut(true), 2500);
     const hideTimer = setTimeout(() => setWelcomeVisible(false), 3200);
     return () => { clearTimeout(fadeTimer); clearTimeout(hideTimer); };
@@ -878,7 +882,7 @@ const SmartMirror = () => {
 
       {/* Audio unlock banner */}
       {!assistant.audioUnlocked && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-xs text-white/60 bg-black/50 border border-white/10 backdrop-blur-sm select-none pointer-events-none">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 px-5 py-1.5 rounded-full text-[10px] uppercase tracking-[0.22em] text-white/25 backdrop-blur-2xl select-none pointer-events-none" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
           Tap anywhere to enable voice
         </div>
       )}
@@ -889,21 +893,22 @@ const SmartMirror = () => {
           assistant.unlockAudio();
           assistant.isOpen ? assistant.endSession() : assistant.open();
         }}
-        className="fixed bottom-6 left-6 z-[1000] rounded-full px-4 py-2 text-xs font-semibold text-white/60 border border-white/10 bg-black/40 hover:bg-black/60 backdrop-blur-xl transition"
+        className="fixed bottom-6 left-6 z-[1000] rounded-full px-5 py-2 text-[10px] uppercase tracking-[0.2em] text-white/30 backdrop-blur-2xl transition-all duration-200 hover:text-white/60 hover:border-white/20"
+        style={{ border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.4)' }}
       >
         {assistant.isOpen ? 'Close AI' : 'Open AI'}
       </button>
 
       {/* Active user badge — appears when phone app sets a user */}
       {activeUser && (
-        <div className="fixed top-6 right-6 z-[1000] flex items-center gap-2 px-3 py-2 rounded-full border border-white/10 bg-black/40 backdrop-blur-xl">
+        <div className="fixed top-6 right-6 z-[1000] flex items-center gap-2.5 px-3 py-2 rounded-full backdrop-blur-2xl" style={{ border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.5)' }}>
           <div
-            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-black"
+            className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold text-black"
             style={{ backgroundColor: 'var(--mirror-accent-color)' }}
           >
             {activeUser.name?.[0]?.toUpperCase() ?? '?'}
           </div>
-          <span className="text-white/80 text-sm font-medium pr-1">{activeUser.name}</span>
+          <span className="text-white/55 text-xs tracking-wide pr-0.5">{activeUser.name}</span>
         </div>
       )}
 
@@ -983,15 +988,17 @@ const SmartMirror = () => {
       {/* Settings Button */}
       <Link
         to="/settings"
-        className="fixed bottom-6 right-6 z-[1000] rounded-full p-3 transition-all duration-300 border border-white/10 bg-black/40 hover:bg-black/60 backdrop-blur-xl"
+        className="fixed bottom-6 right-6 z-[1000] rounded-full p-3 transition-all duration-300 backdrop-blur-2xl hover:opacity-80"
         style={{
+          border: '1px solid rgba(255,255,255,0.08)',
+          background: 'rgba(0,0,0,0.4)',
           color: 'var(--mirror-accent-color)',
           boxShadow: generalSettings.widgetShadows ? '0 12px 30px var(--mirror-accent-soft)' : 'none'
         }}
       >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
       </Link>
 
@@ -1021,15 +1028,15 @@ const SmartMirror = () => {
       {/* Instructions overlay (only show if no apps are enabled) */}
       {enabledApps.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center text-white/70">
-            <div className="text-6xl mb-4">🪟</div>
-            <div className="text-2xl mb-2">Smart Mirror</div>
-            <div className="text-lg mb-4">No apps enabled</div>
-            <Link 
+          <div className="text-center">
+            <p className="mb-1 text-[10px] uppercase tracking-[0.3em] text-white/20">Smart Mirror</p>
+            <p className="mb-8 text-sm text-white/18">No apps enabled</p>
+            <Link
               to="/settings"
-              className="bg-white/20 hover:bg-white/30 px-6 py-3 rounded-lg transition-colors"
+              className="text-[10px] uppercase tracking-[0.22em] text-white/25 rounded-full px-6 py-2.5 transition-all duration-200 hover:text-white/50"
+              style={{ border: '1px solid rgba(255,255,255,0.08)' }}
             >
-              Go to Settings
+              Open Settings
             </Link>
           </div>
         </div>

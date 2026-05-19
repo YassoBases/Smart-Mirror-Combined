@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import useFullscreen from '../../hooks/useFullscreen'
 import { backendApi } from '../../services/backendApi'
+import { mirrorDataStore } from '../../services/mirrorDataStore'
 import './styles.css'
 
 const API_URL = (process.env.REACT_APP_API_URL || 'http://localhost:3000').replace(/\/$/, '')
@@ -155,6 +156,7 @@ function useSpotifyStatus() {
         status: { connected, displayName, playback, playbackError: null },
         lastUpdated: Date.now(),
       })
+      mirrorDataStore.update('spotify', { connected, displayName, playback })
     } catch (error) {
       console.error('[Spotify] load error:', error.message, '— url:', url)
       setState((prev) => ({

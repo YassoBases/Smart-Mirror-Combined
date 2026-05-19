@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { getAiAssistantSettings } from '../data/aiAssistant';
+import { mirrorDataStore } from '../services/mirrorDataStore';
 
 // ── Free web tools (no extra API keys needed) ─────────────────────────────
 
@@ -92,6 +93,70 @@ function toolDatetime() {
   });
 }
 
+// ── Mirror data tools (read from apps currently shown on the mirror) ──────
+
+function toolMirrorEmails() {
+  const gmail = mirrorDataStore.getSnapshot().gmail;
+  if (!gmail) return 'Gmail data is not loaded on the mirror yet — it may not be enabled or connected.';
+  if (!gmail.messages?.length) return 'No emails are currently showing on the mirror.';
+  const unread = gmail.unreadCount ?? gmail.messages.filter(m => m.unread).length;
+  return JSON.stringify({
+    unread_count: unread,
+    emails: gmail.messages.map(m => ({
+      from:     m.from,
+      subject:  m.subject,
+      preview:  m.snippet || '',
+      received: m.timestamp ? new Date(m.timestamp).toLocaleString() : 'Unknown',
+      unread:   m.unread ?? false,
+    })),
+  }, null, 2);
+}
+
+function toolMirrorNews() {
+  const news = mirrorDataStore.getSnapshot().news;
+  if (!news?.length) return 'No news headlines are loaded on the mirror right now.';
+  return JSON.stringify({
+    articles: news.map(n => ({
+      title:     n.title,
+      summary:   n.summary || '',
+      source:    n.source,
+      published: n.publishedAt ? new Date(n.publishedAt).toLocaleString() : 'Unknown',
+    })),
+  }, null, 2);
+}
+
+function toolMirrorWeather() {
+  const w = mirrorDataStore.getSnapshot().weather;
+  if (!w) return 'Weather data is not loaded on the mirror right now.';
+  const u = w.units === 'fahrenheit' ? '°F' : '°C';
+  return JSON.stringify({
+    location:    w.location,
+    temperature: `${w.temperature}${u}`,
+    feels_like:  `${w.feelsLike}${u}`,
+    wind_speed:  `${w.windspeed} km/h`,
+    condition:   wmoDescription(w.weathercode),
+    forecast:    (w.forecast || []).map(f => ({
+      date: f.date,
+      high: `${f.high}${u}`,
+      low:  `${f.low}${u}`,
+    })),
+  }, null, 2);
+}
+
+function toolMirrorNowPlaying() {
+  const spotify = mirrorDataStore.getSnapshot().spotify;
+  if (!spotify?.connected) return 'Spotify is not connected on this mirror.';
+  const p = spotify.playback;
+  if (!p?.isPlaying) return 'Nothing is playing on Spotify right now.';
+  return JSON.stringify({
+    title:    p.title,
+    artist:   p.artist,
+    progress: p.durationMs
+      ? `${Math.round((p.progressMs || 0) / 1000)}s / ${Math.round(p.durationMs / 1000)}s`
+      : undefined,
+  }, null, 2);
+}
+
 // ── Tool registry ─────────────────────────────────────────────────────────
 
 const TOOLS_OPENAI = [
@@ -139,6 +204,38 @@ const TOOLS_OPENAI = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'get_mirror_emails',
+      description: "Get the user's Gmail emails currently shown on this mirror. Use this whenever they ask about their inbox, emails, messages, or anything Gmail-related.",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_mirror_news',
+      description: 'Get the news headlines currently displayed on this mirror. Use this when the user asks about news, headlines, or what is in the news today.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_mirror_weather',
+      description: "Get the weather currently shown on this mirror for the user's location. Prefer this over fetching weather externally when the user asks about their local weather.",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_mirror_now_playing',
+      description: 'Get what is currently playing on Spotify as shown on this mirror.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
 ];
 
 // Realtime API uses a flatter tool schema
@@ -151,11 +248,15 @@ const TOOLS_REALTIME = TOOLS_OPENAI.map(t => ({
 
 async function executeTool(name, args) {
   switch (name) {
-    case 'web_search':      return await toolWebSearch(args.query || '');
-    case 'get_weather':     return await toolWeather(args.location || '');
-    case 'get_datetime':    return toolDatetime();
-    case 'wikipedia_search': return await toolWikipedia(args.topic || '');
-    default:                return `Unknown tool: ${name}`;
+    case 'web_search':           return await toolWebSearch(args.query || '');
+    case 'get_weather':          return await toolWeather(args.location || '');
+    case 'get_datetime':         return toolDatetime();
+    case 'wikipedia_search':     return await toolWikipedia(args.topic || '');
+    case 'get_mirror_emails':    return toolMirrorEmails();
+    case 'get_mirror_news':      return toolMirrorNews();
+    case 'get_mirror_weather':   return toolMirrorWeather();
+    case 'get_mirror_now_playing': return toolMirrorNowPlaying();
+    default:                     return `Unknown tool: ${name}`;
   }
 }
 
@@ -481,7 +582,13 @@ export function useAIAssistant() {
       session: {
         modalities: ['text', 'audio'],
         voice,
-        instructions: `You are ${name}, a smart AI assistant built into a smart mirror. Be concise, warm, and helpful. When asked about weather, time, facts, or news — use your tools. Keep spoken answers to 1-3 sentences unless asked to elaborate.`,
+        instructions:
+          `You are ${name}, a personalised AI assistant built into a smart mirror. ` +
+          `Be concise, warm, and helpful. ` +
+          `You have direct access to the data shown on this mirror — the user's Gmail inbox, news headlines, weather, and Spotify. ` +
+          `Always use get_mirror_emails, get_mirror_news, get_mirror_weather, or get_mirror_now_playing when the user asks about those topics. ` +
+          `Keep spoken answers to 1-3 sentences unless asked to elaborate.` +
+          mirrorDataStore.buildContextSummary(),
         turn_detection: { type: 'server_vad', threshold: 0.45, prefix_padding_ms: 250, silence_duration_ms: 500 },
         input_audio_transcription: { model: 'whisper-1' },
         tools: TOOLS_REALTIME,
@@ -708,11 +815,16 @@ export function useAIAssistant() {
     }, []);
 
     const systemPrompt =
-      `You are ${name}, a smart AI assistant embedded in a smart mirror. ` +
+      `You are ${name}, a personalised AI assistant embedded in a smart mirror. ` +
       `Today is ${toolDatetime()}. ` +
-      `Be concise and conversational. ` +
-      `Use your tools proactively whenever the user asks about real-world data, weather, news, facts, or time. ` +
-      `Keep responses to 2-3 sentences for spoken answers unless the user asks for more detail.`;
+      `You have direct access to the data currently shown on this mirror — including the user's Gmail inbox, news headlines, weather, and Spotify playback. ` +
+      `Always call get_mirror_emails when the user asks about their email or inbox. ` +
+      `Always call get_mirror_news for news questions. ` +
+      `Always call get_mirror_weather for local weather questions. ` +
+      `Always call get_mirror_now_playing when asked what is playing. ` +
+      `For general knowledge, use web_search or wikipedia_search. ` +
+      `Be concise — keep spoken answers to 2-3 sentences unless the user asks for more detail.` +
+      mirrorDataStore.buildContextSummary();
 
     const messages = [{ role: 'system', content: systemPrompt }, ...allTurns];
 

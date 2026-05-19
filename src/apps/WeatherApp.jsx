@@ -3,6 +3,7 @@ import { getAppSettings } from '../data/apps';
 import useResponsiveFontScale from '../hooks/useResponsiveFontScale';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useProfile } from '../contexts/ProfileContext';
+import { mirrorDataStore } from '../services/mirrorDataStore';
 
 // ── Weather code helpers ───────────────────────────────────────────────────
 
@@ -99,19 +100,22 @@ const WeatherApp = ({ appId = 'weather' }) => {
 
       console.log(`[Weather] API success — ${displayName}: ${current.temperature_2m}° feels ${current.apparent_temperature}°, code: ${current.weathercode}`);
 
-      setWeatherData({
+      const newWeather = {
         temperature:   current.temperature_2m,
         feelsLike:     current.apparent_temperature,
         weathercode:   current.weathercode,
         windspeed:     current.wind_speed_10m,
         location:      displayName,
+        units,
         forecast:      daily.time.map((date, i) => ({
           date,
           code:    daily.weathercode[i],
           high:    daily.temperature_2m_max[i],
           low:     daily.temperature_2m_min[i]
         })).slice(0, 5)
-      });
+      };
+      setWeatherData(newWeather);
+      mirrorDataStore.update('weather', newWeather);
     } catch (err) {
       console.error('[Weather] API error:', err.message);
       setError('Unable to fetch weather data');

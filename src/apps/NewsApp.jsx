@@ -3,6 +3,7 @@ import { getAppSettings } from '../data/apps';
 import useResponsiveFontScale from '../hooks/useResponsiveFontScale';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useProfile } from '../contexts/ProfileContext';
+import { mirrorDataStore } from '../services/mirrorDataStore';
 
 // ── News source registry ───────────────────────────────────────────────────
 
@@ -160,6 +161,7 @@ const NewsApp = ({ appId = 'news' }) => {
       const articles = await fetchAllSources(sources, maxItems);
       console.log(`[News] Loaded ${articles.length} total articles`);
       setNews(articles);
+      mirrorDataStore.update('news', articles);
     } catch (err) {
       console.error('[News] All sources failed:', err.message);
       setError('Unable to load news');

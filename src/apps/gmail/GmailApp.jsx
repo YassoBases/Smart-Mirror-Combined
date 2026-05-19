@@ -3,6 +3,7 @@ import { getAppSettings } from '../../data/apps';
 import useResponsiveFontScale from '../../hooks/useResponsiveFontScale';
 import { fetchGmailStatusForMirror, fetchGmailMessagesForMirror } from './gmailService';
 import { backendApi } from '../../services/backendApi';
+import { mirrorDataStore } from '../../services/mirrorDataStore';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -165,6 +166,7 @@ const GmailApp = ({ appId = 'gmail' }) => {
       console.log('[GmailApp] gmail messages received:', gmailMessages);
       setStatus(gmailStatus);
       setMailData(gmailMessages);
+      if (gmailMessages) mirrorDataStore.update('gmail', gmailMessages);
     } catch (err) {
       console.error('[GmailApp] gmail load error:', err.message);
       setError(err.message || 'Unable to load Gmail data');
