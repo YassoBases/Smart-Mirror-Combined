@@ -14,8 +14,12 @@ export function applyBackendSettings(settings) {
 
   // ── Widget enabled/disabled (settings.widgets.*) ──────────────────────────
   const w = settings.widgets || {};
+  // time_calendar is the Flutter key; datetime is the mirror localStorage key.
+  // Accept either so both the phone-sourced and local-settings paths work.
   if (w.time_calendar !== undefined) {
     stored.datetime = { ...stored.datetime, enabled: w.time_calendar };
+  } else if (w.datetime !== undefined) {
+    stored.datetime = { ...stored.datetime, enabled: w.datetime };
   }
   if (w.weather !== undefined) {
     stored.weather = { ...stored.weather, enabled: w.weather };

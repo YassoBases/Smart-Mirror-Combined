@@ -72,9 +72,11 @@ export const ProfileProvider = ({ children }) => {
       prevProfileIdRef.current  = profile.profileId;
       prevSettingsHashRef.current = settingsHash;
 
-      // Apply backend settings to localStorage so mirror widgets re-evaluate
+      // Apply backend settings to localStorage so mirror widgets re-evaluate.
+      // applyBackendSettings expects { widgets: { weather, news, ... } } (nested),
+      // while profile.settings is the flat normalised object — wrap it accordingly.
       if (settingsChanged) {
-        applyBackendSettings(profile.settings);
+        applyBackendSettings({ widgets: profile.settings });
       }
 
       setActiveProfile(profile);

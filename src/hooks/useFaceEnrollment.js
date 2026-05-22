@@ -101,7 +101,9 @@ const useFaceEnrollment = () => {
           `http://127.0.0.1:3000/api/mirror/${mirrorId}/profiles`
         );
         if (!res.ok) return;
-        profiles = await res.json();
+        // Endpoint returns { profiles: [...] } — extract the array.
+        const json = await res.json();
+        profiles = Array.isArray(json) ? json : (json.profiles ?? []);
       } catch (e) {
         console.warn('[FaceEnroll] profile fetch failed:', e.message);
         return;
