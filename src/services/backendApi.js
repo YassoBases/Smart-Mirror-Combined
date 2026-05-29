@@ -171,8 +171,9 @@ export const backendApi = {
       settings: {
         ...defaults.settings,
         ...(raw.settings || {}),
-        gmail:   gmailConnected,
-        spotify: spotifyConnected,
+        // gmail/spotify visibility follows the phone toggle (carried in raw.settings),
+        // NOT OAuth connection status. Connection status lives in `integrations` below and
+        // only controls whether each widget shows live data or a "not connected" placeholder.
       },
       integrations: {
         gmail:   { connected: gmailConnected, email: gmailEmail },

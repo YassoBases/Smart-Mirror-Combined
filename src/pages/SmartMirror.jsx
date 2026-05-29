@@ -362,9 +362,6 @@ const SmartMirror = () => {
   // ── Widget list — local settings always win; backend adds integration widgets ─
   useEffect(() => {
     const evaluateWidgets = () => {
-      const { profileId, integrations } = activeProfile;
-      const hasBackend = profileId !== null;
-
       const localSettings = JSON.parse(localStorage.getItem('smartMirrorSettings') || '{}');
       // An app is locally enabled when its enabled flag is absent (never set) or true
       const localEnabled = (appId) => localSettings[appId]?.enabled !== false;
@@ -372,15 +369,10 @@ const SmartMirror = () => {
       const visible = apps.filter(app => {
         if (app.isBackgroundService) return false;
 
-        // Gmail & Spotify: show if locally enabled OR backend integration is connected
-        if (app.id === 'gmail') {
-          return localEnabled('gmail') || (hasBackend && integrations.gmail.connected);
-        }
-        if (app.id === 'spotify') {
-          return localEnabled('spotify') || (hasBackend && integrations.spotify.connected);
-        }
-
-        // All other widgets: local setting controls, backend setting can override off→on
+        // All widgets — including Gmail & Spotify — follow the phone toggle.
+        // OAuth connection status (integrations.*) does NOT gate visibility; it only
+        // controls whether each widget shows live data or its own "not connected"
+        // placeholder, which GmailApp/SpotifyApp render internally.
         return localEnabled(app.id);
       });
 
