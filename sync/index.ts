@@ -136,7 +136,8 @@ class MirrorSync extends EventEmitter {
       ? { publicKey: stored.publicKey, privateKey: stored.privateKey }
       : undefined;
 
-    const session = new PairingSession(conn, this.cfg.backendUrl, this.cfg.identityPath);
+    const session = new PairingSession(
+      conn, this.cfg.backendUrl, this.cfg.identityPath, this.cfg.httpApiUrl);
     this.pairing  = session;
 
     session.on('qr', (data: { raw: string; dataUrl: string }) => {

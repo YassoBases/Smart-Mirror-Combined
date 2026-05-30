@@ -33,7 +33,9 @@ export type SyncPhase =
 
 export interface QRPayload {
   v: 1;
-  backend: string;
+  backend: string;        // WebSocket sync URL (mirror ↔ backend)
+  api?: string;           // LAN HTTP API base, e.g. http://192.168.1.6:3000/api
+                          // — lets the phone self-configure before login
   sid: string;
   mpk: string;   // mirror public key (base64)
   nonce: string; // random 16-byte (base64) prevents replay

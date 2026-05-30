@@ -1,14 +1,20 @@
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
+import { backendApi } from '../services/backendApi';
 
 /**
  * Renders a QR code that encodes the Mirror ID as a JSON payload
  * the phone app can recognize:
- *   { type: "smart-mirror-pair", mirrorId: "<uuid>", v: 1 }
+ *   v2: { type: "smart-mirror-pair", mirrorId: "<uuid>", api: "http://<lan-ip>:3000/api", v: 2 }
+ *   v1 (fallback): { type: "smart-mirror-pair", mirrorId: "<uuid>", v: 1 }
  *
- * The phone scans this, parses the JSON, extracts mirrorId, and calls
- *   PATCH /api/profiles/:id/mirror   { mirrorId }
- * to link the active profile to this mirror.
+ * The phone scans this, parses the JSON, and:
+ *   - stores `api` as its backend base URL (so it works on any network), and
+ *   - calls PATCH /api/profiles/:id/mirror { mirrorId } to link the profile.
+ *
+ * The `api` field is additive — older apps simply ignore it and still pair.
+ * If the backend's netinfo endpoint is unreachable we emit a v1 payload so
+ * pairing still works (the app keeps whatever backend URL it already had).
  */
 const MirrorIdQRCode = ({ mirrorId, size = 180 }) => {
   const [dataUrl, setDataUrl] = useState('');
@@ -16,19 +22,42 @@ const MirrorIdQRCode = ({ mirrorId, size = 180 }) => {
 
   useEffect(() => {
     if (!mirrorId) return;
-    const payload = JSON.stringify({
-      type: 'smart-mirror-pair',
-      mirrorId,
-      v: 1,
-    });
-    QRCode.toDataURL(payload, {
-      errorCorrectionLevel: 'M',
-      margin: 1,
-      width: size,
-      color: { dark: '#000000', light: '#ffffff' },
-    })
-      .then(setDataUrl)
-      .catch((err) => setError(err.message || 'QR generation failed'));
+    let cancelled = false;
+
+    (async () => {
+      let apiBaseUrl = null;
+      try {
+        const info = await backendApi.getNetInfo();
+        apiBaseUrl = info?.apiBaseUrl || null;
+      } catch (err) {
+        // Non-fatal — fall back to a mirrorId-only (v1) QR.
+        console.warn('[MirrorQR] netinfo unavailable, emitting v1 QR:', err.message);
+      }
+      if (cancelled) return;
+
+      const payload = JSON.stringify({
+        type: 'smart-mirror-pair',
+        mirrorId,
+        ...(apiBaseUrl ? { api: apiBaseUrl } : {}),
+        v: apiBaseUrl ? 2 : 1,
+      });
+
+      try {
+        const url = await QRCode.toDataURL(payload, {
+          errorCorrectionLevel: 'M',
+          margin: 1,
+          width: size,
+          color: { dark: '#000000', light: '#ffffff' },
+        });
+        if (!cancelled) setDataUrl(url);
+      } catch (err) {
+        if (!cancelled) setError(err.message || 'QR generation failed');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [mirrorId, size]);
 
   if (error) {

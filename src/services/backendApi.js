@@ -61,6 +61,17 @@ export const backendApi = {
   // ── Mirror sync ───────────────────────────────────────────────────────────
 
   /**
+   * Asks the backend for its LAN IPv4 + API base URL. The mirror is a browser
+   * and can't read the Pi's network address, so the backend reports it.
+   * Returns { apiBaseUrl, ip, port }. Used to embed the host in the pairing QR.
+   */
+  getNetInfo: async () => {
+    const res = await fetch(`${API_URL}/api/mirror/netinfo`);
+    if (!res.ok) throw new Error(`netinfo failed (HTTP ${res.status})`);
+    return res.json();
+  },
+
+  /**
    * Returns this mirror's permanent ID (a UUID).
    * Generated once on first call and persisted in localStorage.
    * The phone app enters this ID to link itself to this mirror.
