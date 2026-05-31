@@ -103,6 +103,19 @@ const dbPromise = open({ filename: DB_PATH, driver: sqlite3.Database }).then(
       );
     `);
 
+    // FCM device tokens — one row per phone; household-scoped for push fan-out
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS device_tokens (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        household_id INTEGER NOT NULL,
+        profile_id   INTEGER,
+        token        TEXT    NOT NULL UNIQUE,
+        platform     TEXT,
+        created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (household_id) REFERENCES households(id) ON DELETE CASCADE
+      );
+    `);
+
     return db;
   },
 );

@@ -33,6 +33,7 @@ const translations = {
     newsLoading: 'Loading…',
     newsError: 'Unable to load news',
     newsUpdating: 'updating…',
+    newsLastUpdated: 'Last updated',
     newsTitle: 'News'
   },
 
@@ -65,6 +66,7 @@ const translations = {
     newsLoading: 'Yükleniyor…',
     newsError: 'Haberler yüklenemedi',
     newsUpdating: 'güncelleniyor…',
+    newsLastUpdated: 'Son güncelleme',
     newsTitle: 'Haberler'
   }
 };

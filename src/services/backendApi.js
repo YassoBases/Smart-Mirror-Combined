@@ -120,6 +120,21 @@ export const backendApi = {
   },
 
   /**
+   * Reports an unknown-face detection to the backend, which forwards a
+   * push notification to all registered phones in the household.
+   */
+  reportUnknownFace: async (mirrorId) => {
+    try {
+      await fetch(`${API_URL}/api/mirrors/${encodeURIComponent(mirrorId)}/unknown-face`, {
+        method: 'POST',
+      });
+      console.log('[Mirror] Unknown-face alert sent');
+    } catch (e) {
+      console.warn('[Mirror] Alert send failed:', e.message);
+    }
+  },
+
+  /**
    * Tells the backend which profile is now active on this mirror.
    * Called by the mirror when face recognition switches the active user.
    * Body: { mirrorId, profileId }

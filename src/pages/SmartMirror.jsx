@@ -449,9 +449,7 @@ const SmartMirror = () => {
             lastUnknownAlertRef.current = now;
             const mirrorId = backendApi.getMirrorId();
             if (mirrorId) {
-              fetch(`http://127.0.0.1:3001/api/mirrors/${mirrorId}/unknown-face`, { method: 'POST' })
-                .then(() => console.log('[Mirror] Unknown-face alert sent'))
-                .catch((e) => console.warn('[Mirror] Alert send failed:', e.message));
+              backendApi.reportUnknownFace(mirrorId);
             }
           }
         }
