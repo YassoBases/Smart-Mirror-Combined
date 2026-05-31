@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { DeviceAccountButton } from '../components/PairingScreen';
 import MirrorIdQRCode from '../components/MirrorIdQRCode';
 import { apps, saveAppSettings, toggleAppEnabled } from '../data/apps';
-import { getUsers, setActiveUser, migrateUsersIfNeeded } from '../data/users';
+import { getUsers, migrateUsersIfNeeded } from '../data/users';
 import { backendApi } from '../services/backendApi';
 import {
   getAiAssistantSettings,
@@ -57,6 +57,8 @@ const Settings = () => {
   const [usersState, setUsersState] = useState(() => { migrateUsersIfNeeded(); return getUsers(); });
 
   const [mirrorIdCopied, setMirrorIdCopied] = useState(false);
+  const [backendProfiles, setBackendProfiles] = useState([]);
+  const [backendActiveId, setBackendActiveId] = useState(null);
 
   const assistantSettings = aiAssistantSettings.settings || {};
   const selectedAccent = getAccentOption(generalSettings.accent);
@@ -68,6 +70,26 @@ const Settings = () => {
     setSettings({ ...savedSettings, general: resolvedGeneral });
     setGeneralSettings(resolvedGeneral);
     setAiAssistantSettings(getAiAssistantSettings());
+  }, []);
+
+  useEffect(() => {
+    const mirrorId = backendApi.getMirrorId();
+    let cancelled = false;
+    const fetchProfiles = async () => {
+      try {
+        const [profiles, active] = await Promise.all([
+          backendApi.getProfilesByMirror(mirrorId),
+          backendApi.getActiveUser(mirrorId),
+        ]);
+        if (!cancelled) {
+          setBackendProfiles(profiles);
+          setBackendActiveId(active?.id ?? null);
+        }
+      } catch (_) {}
+    };
+    fetchProfiles();
+    const timer = setInterval(fetchProfiles, 10000);
+    return () => { cancelled = true; clearInterval(timer); };
   }, []);
 
   const handleToggleApp = (appId, enabled) => {
@@ -142,9 +164,10 @@ const Settings = () => {
     window.dispatchEvent(new Event('storage'));
   };
 
-  const handleSwitchUser = (userId) => {
-    setActiveUser(userId);
-    setUsersState(getUsers());
+  const handleSwitchUser = async (profileId) => {
+    const mirrorId = backendApi.getMirrorId();
+    await backendApi.setActiveMirrorUser(mirrorId, profileId);
+    setBackendActiveId(profileId);
   };
 
   const handleCopyMirrorId = () => {
@@ -1018,12 +1041,12 @@ const Settings = () => {
             </div>
 
             {/* Profiles received from mobile app */}
-            {usersState.profiles.length > 0 ? (
+            {backendProfiles.length > 0 ? (
               <div>
                 <p className="text-[9px] uppercase tracking-[0.28em] text-white/25 mb-3">Active on Mirror</p>
                 <div className="flex flex-wrap gap-3">
-                  {usersState.profiles.map(profile => {
-                    const isActive = profile.id === usersState.activeUserId;
+                  {backendProfiles.map(profile => {
+                    const isActive = profile.id === backendActiveId;
                     return (
                       <button
                         key={profile.id}
@@ -1049,7 +1072,7 @@ const Settings = () => {
                             {profile.name}
                           </div>
                           <div className="text-xs text-white/30 truncate">
-                            {profile.source === 'phone' ? 'Mobile app' : profile.gmailConnected ? profile.gmailEmail || 'Gmail' : 'Local'}
+                            {profile.gmail_connected ? profile.email || 'Gmail' : ''}
                           </div>
                         </div>
                         {isActive && (

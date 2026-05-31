@@ -4,7 +4,7 @@ import { backendApi } from '../services/backendApi';
 
 const FACE_MODEL_URL =
   'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
-const POLL_MS = 30_000; // re-check for new face uploads every 30 s
+const POLL_MS = 10_000; // re-check for new face uploads every 10 s
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

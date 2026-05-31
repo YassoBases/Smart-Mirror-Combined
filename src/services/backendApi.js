@@ -36,6 +36,13 @@ export const backendApi = {
     Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}`,
   }),
 
+  getProfilesByMirror: async (mirrorId) => {
+    const res = await fetch(`${API_URL}/api/mirror/${encodeURIComponent(mirrorId)}/profiles`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.profiles || [];
+  },
+
   getProfiles: async () => {
     const res = await fetch(`${API_URL}/api/profiles`, {
       headers: backendApi._authHeaders(),
