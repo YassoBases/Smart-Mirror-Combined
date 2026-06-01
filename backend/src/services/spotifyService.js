@@ -9,6 +9,7 @@ const SCOPES = [
   'user-read-playback-state',
   'user-read-currently-playing',
   'user-modify-playback-state',
+  'streaming',
 ].join(' ');
 
 function clientId()     { return process.env.SPOTIFY_CLIENT_ID; }

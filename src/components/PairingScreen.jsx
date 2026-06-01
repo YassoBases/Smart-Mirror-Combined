@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useMirrorSync } from '../hooks/useMirrorSync';
 import { useGuestMode } from '../contexts/GuestModeContext';
 
@@ -8,11 +9,28 @@ import { useGuestMode } from '../contexts/GuestModeContext';
 
 // ─── Main pairing / login screen ─────────────────────────────────────────────
 
-export default function PairingScreen() {
+export default function PairingScreen({ onComplete }) {
   const { phase, qrData, shortCode, qrExpiring, bridgeOnline, factoryReset } = useMirrorSync();
   const { enterGuest } = useGuestMode();
 
-  const visible = phase === 'booting' || phase === 'pairing';
+  // Advance when phone connects via QR
+  useEffect(() => {
+    if (phase === 'ready') onComplete?.();
+  }, [phase, onComplete]);
+
+  // Advance after a short delay if the sync bridge is unreachable
+  useEffect(() => {
+    if (phase !== 'bridge_unavailable') return;
+    const t = setTimeout(() => onComplete?.(), 1500);
+    return () => clearTimeout(t);
+  }, [phase, onComplete]);
+
+  const handleEnterGuest = () => {
+    enterGuest();
+    onComplete?.();
+  };
+
+  const visible = phase === 'booting' || phase === 'pairing' || phase === 'bridge_unavailable';
   if (!visible) return null;
 
   const hasQR     = Boolean(qrData?.dataUrl);
@@ -148,7 +166,7 @@ export default function PairingScreen() {
             {/* Gesture-clickable — SmartMirror's pinch handler fires el.click()
                 on whatever element is under the cursor, including this button */}
             <button
-              onClick={enterGuest}
+              onClick={handleEnterGuest}
               className="rounded-full px-8 py-2.5 text-xs tracking-[0.14em] text-white/50 transition-all duration-200 hover:text-white/80"
               style={{ border: '1px solid rgba(255,255,255,0.10)', background: 'rgba(255,255,255,0.025)' }}
             >

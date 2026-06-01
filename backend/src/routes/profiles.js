@@ -51,6 +51,7 @@ router.delete("/:id/gmail", authenticate, gmailController.disconnect);
 
 // Spotify per profile
 router.get("/:id/spotify/connect", authenticate, spotifyController.connect);
+router.post("/:id/spotify/exchange", authenticate, spotifyController.exchange);
 router.get("/:id/spotify/status", authenticate, spotifyController.status);
 router.delete("/:id/spotify", authenticate, spotifyController.disconnect);
 

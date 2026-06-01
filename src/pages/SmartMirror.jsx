@@ -20,14 +20,24 @@ import NewsApp from '../apps/NewsApp';
 import SpotifyApp from '../apps/spotify/App';
 import GmailApp from '../apps/gmail/GmailApp';
 
-// Module-level flag: survives React Router navigations within the same SPA session.
-// Reset only on full page reload (F5), which is the correct time to show the welcome again.
-let _mirrorWelcomeShown = false;
-
 const RESIZE_ZONE = 60;           // px from bottom-right corner that triggers gesture resize
-const DRAG_COMMIT_TIME_MS = 200;  // ms of sustained pinch before committing to drag/resize
+const DRAG_COMMIT_TIME_MS = 500;  // ms of sustained pinch before committing to drag/resize
 const DRAG_COMMIT_DISTANCE_PX = 20; // px of movement before committing (whichever comes first)
-const CLICK_MAX_MOVE_PX = 30;    // px — abort click if hand moved more than this
+const CLICK_MAX_MOVE_PX = 60;    // px — abort click if hand moved more than this
+
+// Walk up the DOM from el to find the nearest interactive element (button, a, etc.)
+function findClickTarget(el) {
+  let cur = el;
+  while (cur && cur !== document.body) {
+    const tag = cur.tagName?.toLowerCase();
+    if (tag === 'button' || tag === 'a' || tag === 'input' || tag === 'select' || tag === 'label') {
+      return cur;
+    }
+    if (cur.getAttribute('role') === 'button') return cur;
+    cur = cur.parentElement;
+  }
+  return el;
+}
 
 const hexToRgba = (hex, alpha) => {
   if (!hex) {
@@ -97,21 +107,6 @@ const SmartMirror = () => {
   const sleepWakeTimerRef = useRef(null);
   const sleepWakeLastPositionRef = useRef(null);
   const [sleepWakeCursorVisible, setSleepWakeCursorVisible] = useState(false);
-
-  // ── Welcome screen — only once per SPA session ───────────────────────────
-  // _mirrorWelcomeShown is module-level so it survives React Router navigations.
-  const [welcomeVisible, setWelcomeVisible] = useState(!_mirrorWelcomeShown);
-  const [welcomeFadingOut, setWelcomeFadingOut] = useState(false);
-
-  useEffect(() => {
-    if (!welcomeVisible) return;
-    const fadeTimer = setTimeout(() => setWelcomeFadingOut(true), 2500);
-    const hideTimer = setTimeout(() => {
-      setWelcomeVisible(false);
-      _mirrorWelcomeShown = true;
-    }, 3200);
-    return () => { clearTimeout(fadeTimer); clearTimeout(hideTimer); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Face recognition state ────────────────────────────────────────────────
   // lockedFaceUser: the user currently locked in via face recognition (null = no face seen yet)
@@ -731,8 +726,9 @@ const SmartMirror = () => {
           const clickY = pinchStartPositionRef.current?.y ?? position.y;
           const el = document.elementFromPoint(clickX, clickY);
           const tag = el?.tagName?.toLowerCase();
-          if (el && typeof el.click === 'function' && tag !== 'video' && tag !== 'canvas') {
-            try { el.click(); } catch (_) { /* ignore restricted elements */ }
+          if (el && tag !== 'video' && tag !== 'canvas') {
+            const target = findClickTarget(el);
+            try { target.click(); } catch (_) { /* ignore restricted elements */ }
           }
         }
       }
@@ -820,50 +816,6 @@ const SmartMirror = () => {
 
   return (
     <div ref={containerRef} className="w-screen h-screen bg-black overflow-hidden relative" onClick={() => setActiveWidgetId(null)}>
-
-      {/* Welcome splash screen */}
-      {welcomeVisible && (
-        <div
-          className="absolute inset-0 z-[2000] flex flex-col items-center justify-center bg-black pointer-events-none"
-          style={{
-            opacity: welcomeFadingOut ? 0 : 1,
-            transition: 'opacity 0.9s cubic-bezier(0.4, 0, 0.2, 1)'
-          }}
-        >
-          <div className="flex flex-col items-center gap-4">
-            {/* "Welcome To" — fades up with letter-spacing expand */}
-            <p
-              className="text-white uppercase text-sm font-light"
-              style={{
-                animation: 'welcomeSubtitle 1s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both'
-              }}
-            >
-              Welcome To
-            </p>
-
-            {/* "SmartMirror" — fades up then glows */}
-            <h1
-              className="text-7xl font-bold tracking-tight"
-              style={{
-                color: 'var(--mirror-accent-color, #ffffff)',
-                animation: 'welcomeFadeUp 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.3s both, welcomeGlow 1.8s ease-out 0.9s both'
-              }}
-            >
-              SmartMirror
-            </h1>
-
-            {/* Expanding accent line */}
-            <div
-              className="h-px w-0 mt-1"
-              style={{
-                backgroundColor: 'var(--mirror-accent-color, #ffffff)',
-                opacity: 0.45,
-                animation: 'welcomeBar 1s cubic-bezier(0.22, 1, 0.36, 1) 0.7s forwards'
-              }}
-            />
-          </div>
-        </div>
-      )}
 
       <div
         className="absolute inset-0 z-[1100] bg-black transition-opacity duration-500"

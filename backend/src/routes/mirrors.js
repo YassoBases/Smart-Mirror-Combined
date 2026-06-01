@@ -211,6 +211,18 @@ router.get('/spotify/now-playing', async (req, res, next) => {
   }
 });
 
+// ── Retry helper — retries a fetch on transient network failures ──────────────
+async function fetchWithRetry(url, options, retries = 3, delayMs = 600) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fetch(url, options);
+    } catch (err) {
+      if (attempt === retries) throw err;
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+}
+
 // ── GET /api/mirrors/spotify/player?mid=<mirrorId> ────────────────────────────
 router.get('/spotify/player', async (req, res) => {
   try {
@@ -225,20 +237,49 @@ router.get('/spotify/player', async (req, res) => {
       token = await spotifyService.getFreshToken(profile.id);
     } catch (e) {
       console.warn('[mirrors] getFreshToken failed:', e.message);
+      // Token error = genuinely disconnected
       return res.json({ connected: false });
     }
 
-    const spotifyRes = await fetch('https://api.spotify.com/v1/me/player', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
+    let spotifyRes;
+    try {
+      spotifyRes = await fetchWithRetry('https://api.spotify.com/v1/me/player', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+    } catch (netErr) {
+      // Transient network failure — keep showing as connected with no playback update
+      console.warn('[mirrors] spotify/player network error (retries exhausted):', netErr.message);
+      return res.json({
+        connected:    true,
+        displayName:  profile.spotify_display_name || '',
+        networkError: true,
+        is_playing:   false,
+        item:         null,
+      });
+    }
 
-    // 204 = authenticated but no active device / nothing playing
+    // 204 = no active device registered with Spotify — common on mobile / free accounts.
+    // Fall back to /currently-playing which works without an active device.
     if (spotifyRes.status === 204) {
+      let cpRes;
+      try {
+        cpRes = await fetchWithRetry('https://api.spotify.com/v1/me/player/currently-playing', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+      } catch (netErr) {
+        console.warn('[mirrors] spotify/currently-playing network error:', netErr.message);
+        return res.json({ connected: true, displayName: profile.spotify_display_name || '', networkError: true, is_playing: false, item: null });
+      }
+      if (!cpRes.ok || cpRes.status === 204) {
+        return res.json({ connected: true, displayName: profile.spotify_display_name || '', is_playing: false, item: null });
+      }
+      const cp = await cpRes.json();
       return res.json({
         connected:   true,
         displayName: profile.spotify_display_name || '',
-        is_playing:  false,
-        item:        null,
+        is_playing:  cp.is_playing ?? false,
+        item:        cp.item ?? null,
+        progress_ms: cp.progress_ms ?? 0,
       });
     }
 
@@ -248,10 +289,10 @@ router.get('/spotify/player', async (req, res) => {
       console.warn('[mirrors] Spotify player returned %d', spotifyRes.status);
       if (spotifyRes.status === 401) return res.json({ connected: false });
       return res.json({
-        connected:  true,
+        connected:   true,
         displayName: profile.spotify_display_name || '',
-        is_playing: false,
-        item:       null,
+        is_playing:  false,
+        item:        null,
       });
     }
 
@@ -264,7 +305,8 @@ router.get('/spotify/player', async (req, res) => {
     });
   } catch (err) {
     console.error('[mirrors] spotify/player error:', err.message);
-    res.json({ connected: false });
+    // Unknown error — keep connected state to avoid wiping the display
+    res.json({ connected: true, displayName: '', networkError: true, is_playing: false, item: null });
   }
 });
 
@@ -304,6 +346,128 @@ router.post('/spotify/control', async (req, res) => {
   } catch (err) {
     console.error('[mirrors] spotify/control error:', err.message);
     res.status(500).json({ error: 'Spotify control failed' });
+  }
+});
+
+// ── GET /api/mirrors/spotify/devices?mid=<mirrorId> ──────────────────────────
+// Returns all available Spotify Connect devices for the active user.
+router.get('/spotify/devices', async (req, res) => {
+  try {
+    const profile = await getActiveProfile(req.query.mid);
+    if (!profile || !profile.spotify_connected) return res.json({ devices: [] });
+
+    let token;
+    try { token = await spotifyService.getFreshToken(profile.id); } catch (e) { return res.json({ devices: [] }); }
+
+    const r = await fetch('https://api.spotify.com/v1/me/player/devices', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!r.ok) return res.json({ devices: [] });
+    const data = await r.json();
+    res.json({ devices: data.devices || [] });
+  } catch (err) {
+    console.error('[mirrors] spotify/devices error:', err.message);
+    res.json({ devices: [] });
+  }
+});
+
+// ── POST /api/mirrors/spotify/transfer ───────────────────────────────────────
+// Body: { mid, deviceId, play? }
+// Transfers Spotify playback to the specified device.
+router.post('/spotify/transfer', async (req, res) => {
+  try {
+    const profile = await getActiveProfile(req.body.mid);
+    if (!profile || !profile.spotify_connected) {
+      return res.status(403).json({ error: 'No Spotify session for this mirror' });
+    }
+
+    let token;
+    try { token = await spotifyService.getFreshToken(profile.id); } catch (e) {
+      return res.status(403).json({ error: 'Spotify token unavailable' });
+    }
+
+    const { deviceId, play = true } = req.body;
+    if (!deviceId) return res.status(400).json({ error: 'deviceId is required' });
+
+    const r = await fetch('https://api.spotify.com/v1/me/player', {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_ids: [deviceId], play }),
+    });
+
+    if (!r.ok && r.status !== 204) {
+      const body = await r.json().catch(() => ({}));
+      return res.status(r.status).json({ error: body.error?.message || 'Transfer failed' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[mirrors] spotify/transfer error:', err.message);
+    res.status(500).json({ error: 'Transfer failed' });
+  }
+});
+
+// ── GET /api/mirrors/spotify/web-player-token?mid=<mirrorId> ─────────────────
+// Returns a fresh access token for use by the Spotify Web Playback SDK in the
+// mirror browser. The SDK calls this internally via getOAuthToken().
+router.get('/spotify/web-player-token', async (req, res) => {
+  try {
+    const profile = await getActiveProfile(req.query.mid);
+    if (!profile || !profile.spotify_connected) {
+      return res.status(403).json({ error: 'Not connected' });
+    }
+    let token;
+    try { token = await spotifyService.getFreshToken(profile.id); } catch (e) {
+      return res.status(403).json({ error: 'Token unavailable' });
+    }
+    res.json({ access_token: token });
+  } catch (err) {
+    console.error('[mirrors] spotify/web-player-token error:', err.message);
+    res.status(500).json({ error: 'Token fetch failed' });
+  }
+});
+
+// ── POST /api/mirrors/spotify/play-track ─────────────────────────────────────
+// Body: { mid: mirrorId, query: 'song or artist name' }
+// Searches Spotify for the top matching track and starts playback.
+router.post('/spotify/play-track', async (req, res) => {
+  try {
+    const profile = await getActiveProfile(req.body.mid);
+    if (!profile || !profile.spotify_connected) {
+      return res.status(403).json({ error: 'No Spotify session for this mirror' });
+    }
+
+    let token;
+    try {
+      token = await spotifyService.getFreshToken(profile.id);
+    } catch (e) {
+      return res.status(403).json({ error: 'Spotify token unavailable' });
+    }
+
+    const { query } = req.body;
+    if (!query) return res.status(400).json({ error: 'Missing query' });
+
+    const searchRes = await fetch(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    );
+    if (!searchRes.ok) return res.status(502).json({ error: 'Spotify search failed' });
+    const searchData = await searchRes.json();
+    const track = searchData.tracks?.items?.[0];
+    if (!track) return res.status(404).json({ error: `No track found for "${query}"` });
+
+    await fetch('https://api.spotify.com/v1/me/player/play', {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uris: [track.uri] }),
+    });
+
+    res.json({
+      ok:    true,
+      track: { name: track.name, artist: track.artists.map(a => a.name).join(', ') },
+    });
+  } catch (err) {
+    console.error('[mirrors] spotify/play-track error:', err.message);
+    res.status(500).json({ error: 'Spotify play failed' });
   }
 });
 

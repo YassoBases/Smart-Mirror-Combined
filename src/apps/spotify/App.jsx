@@ -6,6 +6,38 @@ import './styles.css'
 
 const API_URL = (process.env.REACT_APP_API_URL || 'http://localhost:3000').replace(/\/$/, '')
 
+// ── Mirror device hook ─────────────────────────────────────────────────────
+// Polls Spotify's device list every 10 s and finds the "Smart Mirror" device
+// created by the librespot service running on the Pi.
+
+function useSpotifyMirrorDevice(mirrorId, connected) {
+  const [mirrorDeviceId, setMirrorDeviceId] = useState(null)
+  const [isMirrorActive, setIsMirrorActive] = useState(false)
+
+  const fetchMirrorDevice = useCallback(async () => {
+    if (!connected || !mirrorId) return
+    try {
+      const data = await fetchJson(
+        `${API_URL}/api/mirrors/spotify/devices?mid=${encodeURIComponent(mirrorId)}`
+      )
+      const device = (data.devices || []).find(d => d.name === 'Smart Mirror')
+      setMirrorDeviceId(device?.id ?? null)
+      setIsMirrorActive(device?.is_active ?? false)
+    } catch (e) {
+      console.error('[MirrorDevice] fetch failed:', e.message)
+    }
+  }, [connected, mirrorId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!connected) return
+    fetchMirrorDevice()
+    const id = setInterval(fetchMirrorDevice, 10000)
+    return () => clearInterval(id)
+  }, [connected, fetchMirrorDevice])
+
+  return { mirrorDeviceId, isMirrorActive, fetchMirrorDevice }
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const POLL_INTERVAL_MS = 5000
@@ -145,11 +177,16 @@ function useSpotifyStatus() {
 
   const load = useCallback(async () => {
     const url = `${API_URL}/api/mirrors/spotify/player?mid=${encodeURIComponent(mirrorId)}`
-    console.log('[Spotify] polling:', url)
     try {
       const data = await fetchJson(url)
-      const { connected, displayName, playback } = normalizePlayerResponse(data)
 
+      // Backend signals a transient network blip — keep existing playback state, don't wipe display
+      if (data.networkError) {
+        setState((prev) => ({ ...prev, loading: false, error: '' }))
+        return
+      }
+
+      const { connected, displayName, playback } = normalizePlayerResponse(data)
       setState({
         loading: false,
         error: '',
@@ -159,10 +196,11 @@ function useSpotifyStatus() {
       mirrorDataStore.update('spotify', { connected, displayName, playback })
     } catch (error) {
       console.error('[Spotify] load error:', error.message, '— url:', url)
+      // On fetch error keep existing state — only show error on first load
       setState((prev) => ({
         ...prev,
         loading: false,
-        error: error.message || 'Unable to load Spotify status.',
+        error: prev.loading ? (error.message || 'Unable to load Spotify status.') : '',
       }))
     }
   }, [mirrorId])
@@ -289,6 +327,45 @@ function Controls({ isPlaying, onPrevious, onPlayPause, onNext, disabled }) {
   )
 }
 
+function MirrorDeviceButton({ deviceId, isActive, isTransferring, onTransfer }) {
+  const speakerIcon = (
+    <svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11">
+      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+    </svg>
+  )
+
+  if (!deviceId) {
+    return (
+      <div className="sg-mirror-device sg-mirror-device--loading" title="Mirror speaker not detected yet">
+        {speakerIcon}
+        <span>Mirror speaker…</span>
+      </div>
+    )
+  }
+
+  if (isActive) {
+    return (
+      <div className="sg-mirror-device sg-mirror-device--active" title="Playing through mirror speaker">
+        {speakerIcon}
+        <span>Playing on Mirror</span>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      className="sg-mirror-device sg-mirror-device--ready"
+      onClick={onTransfer}
+      disabled={isTransferring}
+      title="Play audio through the mirror's JBL speaker"
+    >
+      {speakerIcon}
+      <span>{isTransferring ? 'Switching…' : 'Play on Mirror'}</span>
+    </button>
+  )
+}
+
 // ── Main component ──────────────────────────────────────────────────────────
 
 export default function SpotifyGlassCard() {
@@ -298,6 +375,13 @@ export default function SpotifyGlassCard() {
   const [containerHeight, setContainerHeight] = useState(0)
   const [pendingAction, setPendingAction] = useState(null)
   const [controlError, setControlError] = useState('')
+
+  // Mirror device — polls for the librespot "Smart Mirror" Spotify Connect device
+  const { mirrorDeviceId, isMirrorActive, fetchMirrorDevice } = useSpotifyMirrorDevice(
+    mirrorId,
+    status.connected
+  )
+  const [transferring, setTransferring] = useState(false)
 
   const playback = status.playback
   const isPlaying = Boolean(playback?.isPlaying)
@@ -420,6 +504,27 @@ export default function SpotifyGlassCard() {
     [controlsDisabled, reload, mirrorId],
   )
 
+  // ── Transfer playback to the mirror device ────────────────────────────────
+
+  const handleTransferToMirror = useCallback(async () => {
+    if (!mirrorDeviceId || transferring) return
+    setTransferring(true)
+    try {
+      await fetchJson(`${API_URL}/api/mirrors/spotify/transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mid: mirrorId, deviceId: mirrorDeviceId, play: true }),
+      })
+      await Promise.all([reload(), fetchMirrorDevice()])
+    } catch (err) {
+      console.error('[Spotify] transfer to mirror failed:', err.message)
+      setControlError(err.message || 'Transfer failed')
+      setTimeout(() => setControlError(''), 4000)
+    } finally {
+      setTransferring(false)
+    }
+  }, [mirrorDeviceId, mirrorId, reload, fetchMirrorDevice, transferring])
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   const cardClass = [
@@ -478,6 +583,14 @@ export default function SpotifyGlassCard() {
               onNext={() => handleControl('next')}
               disabled={controlsDisabled}
             />
+            {status.connected && (
+              <MirrorDeviceButton
+                deviceId={mirrorDeviceId}
+                isActive={isMirrorActive}
+                isTransferring={transferring}
+                onTransfer={handleTransferToMirror}
+              />
+            )}
           </div>
         </div>
       ) : (
@@ -511,6 +624,16 @@ export default function SpotifyGlassCard() {
             onNext={() => handleControl('next')}
             disabled={controlsDisabled}
           />
+
+          {/* Mirror device button */}
+          {status.connected && (
+            <MirrorDeviceButton
+              deviceId={mirrorDeviceId}
+              isActive={isMirrorActive}
+              isTransferring={transferring}
+              onTransfer={handleTransferToMirror}
+            />
+          )}
 
           {/* Spotify wordmark */}
           <div className="sg-brand" aria-hidden="true">

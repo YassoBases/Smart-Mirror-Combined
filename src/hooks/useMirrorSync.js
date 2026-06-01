@@ -49,6 +49,12 @@ export function useMirrorSync() {
       setPhase(data.phase);
       setState(data.state ?? null);
 
+      // Keep localStorage in sync — backendApi.getMirrorId() reads 'smartMirrorId',
+      // but the DB uses the mirror's public key as mirror_id (set during QR pairing).
+      if (data.mirrorPublicKey) {
+        localStorage.setItem('smartMirrorId', data.mirrorPublicKey);
+      }
+
       // Fetch QR only when pairing — avoids a 404 log on every poll
       if (data.phase === 'pairing') {
         const qRes = await fetch(`${BASE}/qr`, { cache: 'no-store' });

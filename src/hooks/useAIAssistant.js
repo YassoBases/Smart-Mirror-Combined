@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { getAiAssistantSettings } from '../data/aiAssistant';
 import { mirrorDataStore } from '../services/mirrorDataStore';
+import { backendApi } from '../services/backendApi';
+
+const MIRROR_API = (process.env.REACT_APP_API_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 // ── Free web tools (no extra API keys needed) ─────────────────────────────
 
@@ -157,6 +160,40 @@ function toolMirrorNowPlaying() {
   }, null, 2);
 }
 
+async function toolSpotifyControl(action) {
+  const mid = backendApi.getMirrorId();
+  try {
+    const res = await fetch(`${MIRROR_API}/api/mirrors/spotify/control`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mid, action }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return err.error || `Spotify control failed (${res.status})`;
+    }
+    return `Done — ${action} sent to Spotify.`;
+  } catch (e) {
+    return `Spotify control failed: ${e.message}`;
+  }
+}
+
+async function toolSpotifyPlayTrack(query) {
+  const mid = backendApi.getMirrorId();
+  try {
+    const res = await fetch(`${MIRROR_API}/api/mirrors/spotify/play-track`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mid, query }),
+    });
+    const data = await res.json();
+    if (!res.ok) return data.error || `Play failed (${res.status})`;
+    return `Now playing "${data.track.name}" by ${data.track.artist}.`;
+  } catch (e) {
+    return `Spotify play track failed: ${e.message}`;
+  }
+}
+
 // ── Tool registry ─────────────────────────────────────────────────────────
 
 const TOOLS_OPENAI = [
@@ -236,6 +273,41 @@ const TOOLS_OPENAI = [
       parameters: { type: 'object', properties: {} },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'spotify_control',
+      description: 'Control Spotify playback on this mirror: play, pause, skip to next or go back to the previous track.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['play', 'pause', 'next', 'previous'],
+            description: 'Playback action to perform',
+          },
+        },
+        required: ['action'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'spotify_play_track',
+      description: 'Search Spotify for a song or artist and start playing the top result.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Song name, artist name, or both — e.g. "Blinding Lights The Weeknd"',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
 ];
 
 // Realtime API uses a flatter tool schema
@@ -256,7 +328,9 @@ async function executeTool(name, args) {
     case 'get_mirror_news':      return toolMirrorNews();
     case 'get_mirror_weather':   return toolMirrorWeather();
     case 'get_mirror_now_playing': return toolMirrorNowPlaying();
-    default:                     return `Unknown tool: ${name}`;
+    case 'spotify_control':        return await toolSpotifyControl(args.action || 'pause');
+    case 'spotify_play_track':     return await toolSpotifyPlayTrack(args.query || '');
+    default:                       return `Unknown tool: ${name}`;
   }
 }
 
@@ -819,6 +893,7 @@ export function useAIAssistant() {
           `Be concise, warm, and helpful. ` +
           `You have direct access to the data shown on this mirror — the user's Gmail inbox, news headlines, weather, and Spotify. ` +
           `Always use get_mirror_emails, get_mirror_news, get_mirror_weather, or get_mirror_now_playing when the user asks about those topics. ` +
+          `Use spotify_control to play, pause, skip, or go back. Use spotify_play_track to play a specific song or artist. ` +
           `Keep spoken answers to 1-3 sentences unless asked to elaborate.` +
           mirrorDataStore.buildContextSummary(),
         turn_detection: { type: 'server_vad', threshold: 0.45, prefix_padding_ms: 250, silence_duration_ms: 500 },
@@ -1081,6 +1156,7 @@ export function useAIAssistant() {
       `Always call get_mirror_news for news questions. ` +
       `Always call get_mirror_weather for local weather questions. ` +
       `Always call get_mirror_now_playing when asked what is playing. ` +
+      `Use spotify_control to play, pause, skip, or go back. Use spotify_play_track to play a specific song or artist. ` +
       `For general knowledge, use web_search or wikipedia_search. ` +
       `Be concise — keep spoken answers to 2-3 sentences unless the user asks for more detail.` +
       mirrorDataStore.buildContextSummary();
