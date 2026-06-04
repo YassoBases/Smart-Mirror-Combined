@@ -3,6 +3,7 @@ import type { Connection } from './connection';
 import type { Identity, QRPayload } from './types';
 import { writeIdentity } from './identity';
 import { generateKeyPair, deriveSharedSecret, randomBytes, generatePairingCode } from './crypto';
+import { getLocalIp } from './ip';
 
 const REFRESH_INTERVAL_MS      = 290_000; // refresh 10 s before the 5-min session window
 const RESOLVE_POLL_INTERVAL_MS = 5_000;   // how often to retry resolving the LAN api URL
@@ -122,11 +123,14 @@ export class PairingSession extends EventEmitter {
     if (!this.keypair || !this.sid || !this.shortCode) return;
 
     const nonce = await randomBytes(16);
-    const apiBaseUrl = await this._resolveApiBaseUrl();
+    // Use netinfo result when available; fall back to synchronous LAN IP so the
+    // very first QR always carries a valid `api` field (netinfo may not have
+    // responded yet on startup).
+    const apiBaseUrl = await this._resolveApiBaseUrl() ?? this._localApiUrl();
     const payload: QRPayload = {
       v:       1,
       backend: this.backendUrl,
-      ...(apiBaseUrl ? { api: apiBaseUrl } : {}),
+      api:     apiBaseUrl,
       sid:     this.sid,
       mpk:     this.keypair.publicKey,
       nonce,
@@ -187,6 +191,17 @@ export class PairingSession extends EventEmitter {
 
   private _clearResolvePoller(): void {
     if (this.resolvePoller) { clearInterval(this.resolvePoller); this.resolvePoller = null; }
+  }
+
+  // Synchronous fallback: builds the api URL from the local LAN IP so the
+  // first QR emit always has a valid `api` field even before netinfo resolves.
+  private _localApiUrl(): string {
+    try {
+      const port = new URL(this.httpApiUrl).port || '3000';
+      return `http://${getLocalIp()}:${port}`;
+    } catch {
+      return `http://${getLocalIp()}:3000`;
+    }
   }
 
   private async _handleLinked(msg: {
