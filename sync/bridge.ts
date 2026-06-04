@@ -80,12 +80,13 @@ export function startBridge(): http.Server {
     }
 
     if (req.method === 'GET' && url === '/ip') {
-      const { mirrorHttpPort } = loadConfig();
-      const ip = getLocalIp();
+      const cfg  = loadConfig();
+      const ip   = getLocalIp();
+      const port = new URL(cfg.httpApiUrl).port || '3000';
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         ip,
-        mirrorUrl: `http://${ip}:${mirrorHttpPort}`,
+        mirrorUrl: `http://${ip}:${port}`,
         warning: ip === '127.0.0.1' ? 'Could not detect LAN IP — phone pairing will not work' : null,
       }));
       return;
