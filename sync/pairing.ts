@@ -21,6 +21,10 @@ export class PairingSession extends EventEmitter {
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private _stopped = false;
 
+  // LAN HTTP API URL advertised in the QR. Resolved once via the backend's
+  // netinfo endpoint and cached for the life of the session.
+  private apiBaseUrl: string | null = null;
+
   // Bound references so we can remove them cleanly
   private readonly _onConnected = () => this._sendHello();
   private readonly _onMessage   = (msg: Record<string, unknown>) => this._handleMessage(msg);
@@ -29,8 +33,26 @@ export class PairingSession extends EventEmitter {
     private readonly conn: Connection,
     private readonly backendUrl: string,
     private readonly identityPath: string,
+    private readonly httpApiUrl: string = 'http://localhost:3000',
   ) {
     super();
+  }
+
+  // Asks the backend for its LAN-reachable API base URL. The browser/mirror
+  // can't read the host's LAN IP, but the backend can. Cached after the first
+  // success; failures return null so the QR is still emitted (without `api`).
+  private async _resolveApiBaseUrl(): Promise<string | null> {
+    if (this.apiBaseUrl) return this.apiBaseUrl;
+    try {
+      const base = this.httpApiUrl.replace(/\/$/, '');
+      const res = await fetch(`${base}/api/mirror/netinfo`);
+      if (!res.ok) return null;
+      const info = (await res.json()) as { apiBaseUrl?: string };
+      this.apiBaseUrl = info.apiBaseUrl ?? null;
+      return this.apiBaseUrl;
+    } catch {
+      return null; // non-fatal — phone can still use manual entry / its default
+    }
   }
 
   async start(existingKeypair?: { publicKey: string; privateKey: string }): Promise<void> {
@@ -85,9 +107,11 @@ export class PairingSession extends EventEmitter {
     if (!this.keypair || !this.sid || !this.shortCode) return;
 
     const nonce = await randomBytes(16);
+    const apiBaseUrl = await this._resolveApiBaseUrl();
     const payload: QRPayload = {
       v:       1,
       backend: this.backendUrl,
+      ...(apiBaseUrl ? { api: apiBaseUrl } : {}),
       sid:     this.sid,
       mpk:     this.keypair.publicKey,
       nonce,

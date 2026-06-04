@@ -4,6 +4,7 @@ const gmailService = require('../services/gmailService');
 const spotifyService = require('../services/spotifyService');
 const { pairSession, pairByCode } = require('../services/mirrorSync');
 const { authenticate } = require('../middleware/auth');
+const { sendToHousehold } = require('../services/pushService');
 
 // ── POST /api/mirrors/pair ────────────────────────────────────────────────────
 // Phone calls this after scanning the mirror's QR code.
@@ -117,6 +118,8 @@ router.post('/active-user', async (req, res, next) => {
          updated_at = CURRENT_TIMESTAMP`,
       mirrorId, profileId
     );
+
+    await db.run('UPDATE profiles SET mirror_id = ? WHERE id = ?', mirrorId, profileId);
 
     const active = await getActiveProfile(mirrorId);
     const widgetSettings = active.widgets_config ? JSON.parse(active.widgets_config) : undefined;
@@ -468,6 +471,35 @@ router.post('/spotify/play-track', async (req, res) => {
   } catch (err) {
     console.error('[mirrors] spotify/play-track error:', err.message);
     res.status(500).json({ error: 'Spotify play failed' });
+  }
+});
+
+// ── POST /api/mirrors/:mirrorId/unknown-face ──────────────────────────────────
+// Called by the mirror when face recognition sees an unknown person.
+// No auth — mirror-side fire-and-forget; resolved to household via mirror_id.
+router.post('/:mirrorId/unknown-face', async (req, res, next) => {
+  try {
+    const { mirrorId } = req.params;
+    const db = await getDb();
+
+    const row = await db.get(
+      `SELECT a.household_id
+       FROM mirrors m
+       JOIN accounts a ON a.id = m.account_id
+       WHERE m.mirror_id = ?`,
+      mirrorId,
+    );
+
+    if (!row) return res.status(404).json({ error: 'Mirror not found' });
+
+    await sendToHousehold(row.household_id, {
+      title: 'Security Alert',
+      body:  'Unknown face detected at your mirror',
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
   }
 });
 

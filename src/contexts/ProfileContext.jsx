@@ -77,27 +77,24 @@ export const ProfileProvider = ({ children }) => {
         return;
       }
 
-      // Detect settings changes even when profileId is unchanged
-      const settingsHash = JSON.stringify(profile.settings);
+      // Detect what changed
+      const settingsHash    = JSON.stringify(profile.settings);
       const settingsChanged = settingsHash !== prevSettingsHashRef.current;
+      const profileChanged  = profile.profileId !== prevProfileIdRef.current;
 
-      // Skip re-render when profile AND settings haven't changed
-      if (
-        profile.profileId === prevProfileIdRef.current &&
-        !settingsChanged &&
-        lastSynced !== null
-      ) {
+      // Skip re-render when neither profile nor settings changed
+      if (!profileChanged && !settingsChanged && lastSynced !== null) {
         console.log('[ProfileContext] Profile unchanged (id:', profile.profileId, ') — skip.');
         return;
       }
 
-      prevProfileIdRef.current  = profile.profileId;
+      prevProfileIdRef.current    = profile.profileId;
       prevSettingsHashRef.current = settingsHash;
 
       // Apply backend settings to localStorage so mirror widgets re-evaluate.
-      // applyBackendSettings expects { widgets: { weather, news, ... } } (nested),
-      // while profile.settings is the flat normalised object — wrap it accordingly.
-      if (settingsChanged) {
+      // Also force-apply on every profile switch so a new profile's widget set
+      // immediately replaces the previous profile's localStorage state.
+      if (settingsChanged || profileChanged) {
         applyBackendSettings({ widgets: profile.settings });
       }
 

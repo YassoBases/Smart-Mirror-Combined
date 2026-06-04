@@ -58,6 +58,14 @@ export const migrateUsersIfNeeded = () => {
   }
 };
 
+// ── Change notification ───────────────────────────────────────────────────────
+
+const notifyChange = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('storage'));
+  }
+};
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /** Returns the full users state { activeUserId, profiles }. */
@@ -110,10 +118,7 @@ export const saveProfiles = (profiles) => {
 
   root[USERS_KEY] = usersState;
   writeRaw(root);
-
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new Event('storage'));
-  }
+  notifyChange();
 
   return usersState;
 };
@@ -128,6 +133,7 @@ export const saveFaceDescriptor = (userId, descriptor) => {
   if (!root[FACE_KEY]) root[FACE_KEY] = {};
   root[FACE_KEY][userId] = [Array.from(descriptor)]; // always wrap in array
   writeRaw(root);
+  notifyChange();
 };
 
 /**
@@ -139,6 +145,7 @@ export const saveFaceDescriptors = (userId, descriptors) => {
   if (!root[FACE_KEY]) root[FACE_KEY] = {};
   root[FACE_KEY][userId] = descriptors.map(d => Array.from(d));
   writeRaw(root);
+  notifyChange();
 };
 
 /** Returns { [userId]: number[] } map of all stored descriptors. */
@@ -153,6 +160,7 @@ export const removeFaceDescriptor = (userId) => {
   if (root[FACE_KEY]) {
     delete root[FACE_KEY][userId];
     writeRaw(root);
+    notifyChange();
   }
 };
 

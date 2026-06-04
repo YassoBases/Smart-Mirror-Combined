@@ -36,6 +36,13 @@ export const backendApi = {
     Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}`,
   }),
 
+  getProfilesByMirror: async (mirrorId) => {
+    const res = await fetch(`${API_URL}/api/mirror/${encodeURIComponent(mirrorId)}/profiles`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.profiles || [];
+  },
+
   getProfiles: async () => {
     const res = await fetch(`${API_URL}/api/profiles`, {
       headers: backendApi._authHeaders(),
@@ -59,6 +66,17 @@ export const backendApi = {
   },
 
   // ── Mirror sync ───────────────────────────────────────────────────────────
+
+  /**
+   * Asks the backend for its LAN IPv4 + API base URL. The mirror is a browser
+   * and can't read the Pi's network address, so the backend reports it.
+   * Returns { apiBaseUrl, ip, port }. Used to embed the host in the pairing QR.
+   */
+  getNetInfo: async () => {
+    const res = await fetch(`${API_URL}/api/mirror/netinfo`);
+    if (!res.ok) throw new Error(`netinfo failed (HTTP ${res.status})`);
+    return res.json();
+  },
 
   /**
    * Returns this mirror's permanent ID (a UUID).
@@ -98,6 +116,21 @@ export const backendApi = {
     } catch (err) {
       console.warn('[Mirror] Poll error:', err.message, url);
       return null;
+    }
+  },
+
+  /**
+   * Reports an unknown-face detection to the backend, which forwards a
+   * push notification to all registered phones in the household.
+   */
+  reportUnknownFace: async (mirrorId) => {
+    try {
+      await fetch(`${API_URL}/api/mirrors/${encodeURIComponent(mirrorId)}/unknown-face`, {
+        method: 'POST',
+      });
+      console.log('[Mirror] Unknown-face alert sent');
+    } catch (e) {
+      console.warn('[Mirror] Alert send failed:', e.message);
     }
   },
 
@@ -171,8 +204,9 @@ export const backendApi = {
       settings: {
         ...defaults.settings,
         ...(raw.settings || {}),
-        gmail:   gmailConnected,
-        spotify: spotifyConnected,
+        // gmail/spotify visibility follows the phone toggle (carried in raw.settings),
+        // NOT OAuth connection status. Connection status lives in `integrations` below and
+        // only controls whether each widget shows live data or a "not connected" placeholder.
       },
       integrations: {
         gmail:   { connected: gmailConnected, email: gmailEmail },

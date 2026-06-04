@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const os = require("os");
 
 const authRoutes = require("./routes/auth");
 const householdRoutes = require("./routes/households");
@@ -9,6 +10,7 @@ const gmailRoutes = require("./routes/gmail");
 const spotifyRoutes = require("./routes/spotify");
 const mirrorsRoutes = require("./routes/mirrors");
 const aiSettingsRoutes = require("./routes/ai_settings");
+const devicesRoutes    = require("./routes/devices");
 const { getByMirrorId } = require("./controllers/profileController");
 
 const app = express();
@@ -42,9 +44,52 @@ app.use("/api/mirrors", mirrorsRoutes);
 // AI assistant settings (household-scoped, authenticated)
 app.use("/api/ai-settings", aiSettingsRoutes);
 
+// FCM device token registration (authenticated)
+app.use("/api/devices", devicesRoutes);
+
 // Health check — useful for the mirror to verify connectivity
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// Network info — the mirror UI is a browser and can't read the Pi's LAN IP,
+// so the backend surfaces it here. The pairing QR embeds the returned
+// apiBaseUrl so the phone self-configures the right host on any network
+// (home WiFi or hotspot). See MirrorIdQRCode.jsx.
+app.get("/api/mirror/netinfo", (_req, res) => {
+  const port = Number(process.env.PORT) || 3000;
+
+  // Explicit override for multi-interface / edge-case hosts (see backend/.env).
+  let ip = process.env.MIRROR_LAN_IP || null;
+
+  if (!ip) {
+    const candidates = [];
+    for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
+      for (const a of addrs || []) {
+        if (a.family === "IPv4" && !a.internal) {
+          candidates.push({ name, address: a.address });
+        }
+      }
+    }
+
+    // Prefer a pinned interface name, else a common private range, else any.
+    const pinned = process.env.MIRROR_LAN_IFACE
+      ? candidates.find((c) => c.name === process.env.MIRROR_LAN_IFACE)
+      : null;
+    const isPrivate = (addr) =>
+      /^192\.168\./.test(addr) ||
+      /^10\./.test(addr) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(addr);
+    const preferred = candidates.find((c) => isPrivate(c.address));
+
+    ip = (pinned || preferred || candidates[0] || {}).address || null;
+  }
+
+  if (!ip) {
+    return res.status(503).json({ error: "No LAN IPv4 address found" });
+  }
+
+  res.json({ apiBaseUrl: `http://${ip}:${port}/api`, ip, port });
 });
 
 // 404

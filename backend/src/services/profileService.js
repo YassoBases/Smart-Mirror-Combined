@@ -11,11 +11,21 @@ async function createProfile({ householdId, name, email }) {
     throw Object.assign(new Error("Household not found"), { status: 404 });
   }
 
+  const defaultWidgets = JSON.stringify({
+    time_calendar: true,
+    weather: true,
+    news: true,
+    gmail: false,
+    spotify: false,
+    gesture: true,
+  });
+
   const result = await db.run(
-    "INSERT INTO profiles (household_id, name, email) VALUES (?, ?, ?)",
+    "INSERT INTO profiles (household_id, name, email, widgets_config) VALUES (?, ?, ?, ?)",
     householdId,
     name,
     email || null,
+    defaultWidgets,
   );
 
   return db.get("SELECT * FROM profiles WHERE id = ?", result.lastID);
