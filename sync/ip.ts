@@ -1,15 +1,18 @@
 import * as os from 'os';
 
+const VIRTUAL_IFACE = /^(docker|br-|veth|tun|tap|tailscale|zt|wg|virbr)/;
+
 /**
- * Returns the best local LAN IPv4 address for this machine.
- * Prefers 192.168.x.x, then 10.x.x.x, then 172.16-31.x.x.
- * Falls back to 127.0.0.1 if no LAN interface is found.
+ * Returns the best local LAN IPv4 address synchronously.
+ * Skips virtual/container interfaces (same list as backend netinfo).
+ * Prefers 192.168.x.x → 10.x.x.x → 172.16-31.x.x → any non-loopback.
+ * Falls back to 127.0.0.1 if nothing is found.
  */
 export function getLocalIp(): string {
-  const ifaces = os.networkInterfaces();
   const candidates: string[] = [];
 
-  for (const addrs of Object.values(ifaces)) {
+  for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
+    if (VIRTUAL_IFACE.test(name)) continue;
     for (const addr of addrs ?? []) {
       if (addr.family === 'IPv4' && !addr.internal) {
         candidates.push(addr.address);

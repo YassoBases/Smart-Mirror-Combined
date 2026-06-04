@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const os = require("os");
 
 const authRoutes = require("./routes/auth");
 const householdRoutes = require("./routes/households");
@@ -9,6 +10,7 @@ const gmailRoutes = require("./routes/gmail");
 const spotifyRoutes = require("./routes/spotify");
 const mirrorsRoutes = require("./routes/mirrors");
 const aiSettingsRoutes = require("./routes/ai_settings");
+const devicesRoutes    = require("./routes/devices");
 const { getByMirrorId } = require("./controllers/profileController");
 
 const app = express();
@@ -42,25 +44,55 @@ app.use("/api/mirrors", mirrorsRoutes);
 // AI assistant settings (household-scoped, authenticated)
 app.use("/api/ai-settings", aiSettingsRoutes);
 
+// FCM device token registration (authenticated)
+app.use("/api/devices", devicesRoutes);
+
 // Health check — useful for the mirror to verify connectivity
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// QR pairing entry point — phone camera opens http://<MIRROR_IP>:3000/pair?sid=...&code=...
-// Redirect to the React phone pairing page on port 3001 (dev) or same origin (prod).
-app.get("/pair", (req, res) => {
-  const { sid, code } = req.query;
-  if (!sid || !code) {
-    return res.status(400).json({
-      error: "Missing sid or code",
-      hint:  "Scan the mirror QR code again — this link is generated fresh every 5 minutes.",
-    });
+// Network info — the mirror UI is a browser and can't read the Pi's LAN IP,
+// so the backend surfaces it here. The pairing QR embeds the returned
+// apiBaseUrl so the phone self-configures the right host on any network
+// (home WiFi or hotspot). See MirrorIdQRCode.jsx.
+app.get("/api/mirror/netinfo", (_req, res) => {
+  const port = Number(process.env.PORT) || 3000;
+
+  // Explicit override for multi-interface / edge-case hosts (see backend/.env).
+  let ip = process.env.MIRROR_LAN_IP || null;
+
+  if (!ip) {
+    // Skip virtual/container interfaces — they produce unreachable IPs for phones.
+    const VIRTUAL_IFACE = /^(docker|br-|veth|tun|tap|tailscale|zt|wg|virbr)/;
+    const candidates = [];
+    for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
+      if (VIRTUAL_IFACE.test(name)) continue;
+      for (const a of addrs || []) {
+        if (a.family === "IPv4" && !a.internal) {
+          candidates.push({ name, address: a.address });
+        }
+      }
+    }
+
+    // Prefer a pinned interface name, else a common private range, else any.
+    const pinned = process.env.MIRROR_LAN_IFACE
+      ? candidates.find((c) => c.name === process.env.MIRROR_LAN_IFACE)
+      : null;
+    const isPrivate = (addr) =>
+      /^192\.168\./.test(addr) ||
+      /^10\./.test(addr) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(addr);
+    const preferred = candidates.find((c) => isPrivate(c.address));
+
+    ip = (pinned || preferred || candidates[0] || {}).address || null;
   }
-  const frontendPort = process.env.FRONTEND_PORT || 3001;
-  const host = req.hostname; // mirror's LAN IP as dialed by the phone
-  const target = `http://${host}:${frontendPort}/phone-pair?sid=${encodeURIComponent(sid)}&code=${encodeURIComponent(code)}`;
-  res.redirect(302, target);
+
+  if (!ip) {
+    return res.status(503).json({ error: "No LAN IPv4 address found" });
+  }
+
+  res.json({ apiBaseUrl: `http://${ip}:${port}/api`, ip, port });
 });
 
 // 404

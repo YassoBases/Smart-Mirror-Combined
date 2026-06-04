@@ -128,12 +128,13 @@ const fetchAllSources = async (selectedSources, maxItems) => {
 // ── Component ──────────────────────────────────────────────────────────────
 
 const NewsApp = ({ appId = 'news' }) => {
-  const [news, setNews]       = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState('');
-  const containerRef          = useRef(null);
-  const { t }                 = useLanguage();
-  const { activeProfile }     = useProfile();
+  const [news, setNews]           = useState([]);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState('');
+  const [lastUpdated, setLastUpdated] = useState(null); // "HH:MM" string
+  const containerRef              = useRef(null);
+  const { t }                     = useLanguage();
+  const { activeProfile }         = useProfile();
 
   const scale = useResponsiveFontScale(containerRef, {
     baseWidth: 320,
@@ -142,9 +143,11 @@ const NewsApp = ({ appId = 'news' }) => {
     max: 2
   });
 
+  // Stable key — only changes when source list content changes, not on every poll re-render
+  const newsSourcesKey = (activeProfile?.preferences?.newsSources ?? []).join(',');
+
   const fetchNews = useCallback(async () => {
     const s = getAppSettings(appId);
-    // Backend preference takes precedence over local setting
     const profileSources = activeProfile?.preferences?.newsSources;
     const sources = Array.isArray(profileSources) && profileSources.length > 0
       ? profileSources
@@ -162,13 +165,16 @@ const NewsApp = ({ appId = 'news' }) => {
       console.log(`[News] Loaded ${articles.length} total articles`);
       setNews(articles);
       mirrorDataStore.update('news', articles);
+      // Record last-updated time; only rewrite when the HH:MM minute ticks over
+      const hhmm = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+      setLastUpdated(prev => (prev === hhmm ? prev : hhmm));
     } catch (err) {
       console.error('[News] All sources failed:', err.message);
       setError('Unable to load news');
     } finally {
       setLoading(false);
     }
-  }, [appId, activeProfile?.preferences?.newsSources]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [appId, newsSourcesKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchNews();
@@ -243,8 +249,10 @@ const NewsApp = ({ appId = 'news' }) => {
         <div className="text-white font-semibold" style={{ fontSize: headerSize }}>
           📰 {t.newsTitle}
         </div>
-        {loading && news.length > 0 && (
-          <div className="text-white/30" style={{ fontSize: metaSize }}>{t.newsUpdating}</div>
+        {lastUpdated && (
+          <div className="text-white/30" style={{ fontSize: metaSize }}>
+            {t.newsLastUpdated}: {lastUpdated}
+          </div>
         )}
       </div>
       {content}

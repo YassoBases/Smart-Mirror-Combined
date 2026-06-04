@@ -22,19 +22,22 @@ async function callback(req, res, next) {
     const { code, state, error } = req.query;
 
     if (error) {
-      return res.status(400).json({ error: `Google OAuth error: ${error}` });
+      const query = new URLSearchParams({ error: `Google OAuth error: ${error}` }).toString();
+      return res.redirect(`smartmirror://oauth?${query}`);
     }
     if (!code || !state) {
-      return res.status(400).json({ error: 'Missing code or state parameter' });
+      const query = new URLSearchParams({ error: 'Missing code or state parameter' }).toString();
+      return res.redirect(`smartmirror://oauth?${query}`);
     }
 
     const profileId = Number(state);
     if (!profileId) {
-      return res.status(400).json({ error: 'Invalid state parameter' });
+      const query = new URLSearchParams({ error: 'Invalid state parameter' }).toString();
+      return res.redirect(`smartmirror://oauth?${query}`);
     }
 
-    const result = await gmailService.handleCallback(code, profileId);
-    res.json({ message: 'Gmail connected successfully', email: result.email });
+    await gmailService.handleCallback(code, profileId);
+    return res.redirect('smartmirror://oauth?status=connected');
   } catch (err) {
     next(err);
   }

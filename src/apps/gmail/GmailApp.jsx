@@ -4,6 +4,7 @@ import useResponsiveFontScale from '../../hooks/useResponsiveFontScale';
 import { fetchGmailStatusForMirror, fetchGmailMessagesForMirror } from './gmailService';
 import { backendApi } from '../../services/backendApi';
 import { mirrorDataStore } from '../../services/mirrorDataStore';
+import { useProfile } from '../../contexts/ProfileContext';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -138,6 +139,10 @@ const GmailApp = ({ appId = 'gmail' }) => {
 
   const [settings, setSettings] = useState(() => getAppSettings(appId));
 
+  const { activeProfile } = useProfile();
+  const profileId      = activeProfile?.profileId ?? null;
+  const gmailConnected = activeProfile?.integrations?.gmail?.connected ?? false;
+
   const [status, setStatus] = useState(null);       // GmailStatus | null
   const [mailData, setMailData] = useState(null);   // GmailMessagesResponse | null
   const [loading, setLoading] = useState(true);
@@ -175,13 +180,13 @@ const GmailApp = ({ appId = 'gmail' }) => {
     }
   }, [settings.maxEmails]);
 
-  // Initial load + polling
+  // Initial load + polling; restarts when the active profile or Gmail connection changes
   useEffect(() => {
     setLoading(true);
     load();
     const interval = setInterval(load, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [load]);
+  }, [load, profileId, gmailConnected]);
 
   // ---------------------------------------------------------------------------
   // Derived sizing

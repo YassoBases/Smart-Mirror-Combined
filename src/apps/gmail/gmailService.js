@@ -53,7 +53,7 @@ const USE_MOCK = process.env.REACT_APP_GMAIL_USE_MOCK === 'true';
 const BASE_URL = (
   process.env.REACT_APP_API_BASE_URL ||
   process.env.REACT_APP_API_URL ||
-  ''
+  'http://localhost:3000'
 ).replace(/\/$/, '');
 
 // ---------------------------------------------------------------------------

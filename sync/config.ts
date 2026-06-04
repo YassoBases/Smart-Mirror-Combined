@@ -4,7 +4,7 @@ import * as path from 'path';
 
 export interface MirrorConfig {
   backendUrl: string;
-  mirrorHttpPort: number; // HTTP port of the backend API (default 3000)
+  httpApiUrl: string;
   identityPath: string;
   stateCachePath: string;
   bridgePort: number;
@@ -28,8 +28,13 @@ export function loadConfig(): MirrorConfig {
       process.env.MIRROR_BACKEND_URL ??
       file.backendUrl ??
       'wss://localhost:4000',
-    mirrorHttpPort:
-      Number(process.env.MIRROR_HTTP_PORT ?? file.mirrorHttpPort ?? 3000),
+    // HTTP origin of the backend, used to fetch /api/mirror/netinfo so the
+    // pairing QR can advertise the LAN-reachable API URL to the phone. The
+    // bridge runs on the same host as the backend, so localhost is correct.
+    httpApiUrl:
+      process.env.MIRROR_API_URL ??
+      file.httpApiUrl ??
+      'http://localhost:3000',
     identityPath:
       process.env.MIRROR_IDENTITY_PATH ??
       file.identityPath ??
