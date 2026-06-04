@@ -47,6 +47,22 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// QR pairing entry point — phone camera opens http://<MIRROR_IP>:3000/pair?sid=...&code=...
+// Redirect to the React phone pairing page on port 3001 (dev) or same origin (prod).
+app.get("/pair", (req, res) => {
+  const { sid, code } = req.query;
+  if (!sid || !code) {
+    return res.status(400).json({
+      error: "Missing sid or code",
+      hint:  "Scan the mirror QR code again — this link is generated fresh every 5 minutes.",
+    });
+  }
+  const frontendPort = process.env.FRONTEND_PORT || 3001;
+  const host = req.hostname; // mirror's LAN IP as dialed by the phone
+  const target = `http://${host}:${frontendPort}/phone-pair?sid=${encodeURIComponent(sid)}&code=${encodeURIComponent(code)}`;
+  res.redirect(302, target);
+});
+
 // 404
 app.use((req, res) => {
   res.status(404).json({ error: "Not found" });

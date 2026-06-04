@@ -14,6 +14,7 @@
 
 import { EventEmitter } from 'events';
 import { loadConfig, MirrorConfig } from './config';
+import { getLocalIp } from './ip';
 import { readIdentity, writeIdentity, wipeIdentity, isLinked } from './identity';
 import { Connection } from './connection';
 import { PairingSession } from './pairing';
@@ -136,7 +137,10 @@ class MirrorSync extends EventEmitter {
       ? { publicKey: stored.publicKey, privateKey: stored.privateKey }
       : undefined;
 
-    const session = new PairingSession(conn, this.cfg.backendUrl, this.cfg.identityPath);
+    const localIp = getLocalIp();
+    const mirrorHttpUrl = `http://${localIp}:${this.cfg.mirrorHttpPort}`;
+    console.log(`[mirror-sync] LAN IP detected: ${localIp} → QR will use ${mirrorHttpUrl}`);
+    const session = new PairingSession(conn, this.cfg.backendUrl, mirrorHttpUrl, this.cfg.identityPath);
     this.pairing  = session;
 
     session.on('qr', (data: { raw: string; dataUrl: string }) => {

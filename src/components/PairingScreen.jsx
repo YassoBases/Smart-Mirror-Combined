@@ -10,7 +10,7 @@ import { useGuestMode } from '../contexts/GuestModeContext';
 // ─── Main pairing / login screen ─────────────────────────────────────────────
 
 export default function PairingScreen({ onComplete }) {
-  const { phase, qrData, shortCode, qrExpiring, bridgeOnline, factoryReset } = useMirrorSync();
+  const { phase, qrData, shortCode, qrExpiring, bridgeOnline, mirrorIp, factoryReset } = useMirrorSync();
   const { enterGuest } = useGuestMode();
 
   // Advance when phone connects via QR
@@ -129,6 +129,19 @@ export default function PairingScreen({ onComplete }) {
           ) : (
             <p className="mt-6 text-center text-[10px] leading-relaxed tracking-wide text-white/18">
               Open the mirror app<br />and scan to pair
+            </p>
+          )}
+
+          {/* Mirror IP — shown so users can verify both devices are on the same network */}
+          {mirrorIp && mirrorIp !== '127.0.0.1' && (
+            <div className="mt-4 text-center">
+              <p className="text-[8px] uppercase tracking-[0.2em] text-white/15">Mirror IP</p>
+              <p className="font-mono text-[11px] text-white/35 mt-0.5">{mirrorIp}</p>
+            </div>
+          )}
+          {mirrorIp === '127.0.0.1' && (
+            <p className="mt-4 text-center text-[9px] text-amber-400/50 leading-relaxed">
+              No Wi-Fi detected — phone<br />cannot connect via QR
             </p>
           )}
         </div>

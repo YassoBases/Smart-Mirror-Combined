@@ -1,7 +1,13 @@
 // Mirror ↔ Backend API service
 // Connects the mirror to the Node.js/Express backend for login, profiles, and user management.
 
-const API_URL = (process.env.REACT_APP_API_URL || 'http://localhost:3000').replace(/\/$/, '');
+// Use window.location.hostname so the phone browser's API calls go to the
+// mirror's LAN IP (e.g. 192.168.1.25:3000) instead of localhost:3000.
+// REACT_APP_API_URL overrides this for staging/production deployments.
+const API_URL = (
+  process.env.REACT_APP_API_URL ||
+  `http://${window.location.hostname}:3000`
+).replace(/\/$/, '');
 
 const TOKEN_KEY = 'mirrorBackendToken';
 

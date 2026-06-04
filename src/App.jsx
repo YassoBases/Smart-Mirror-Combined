@@ -4,6 +4,7 @@ import SmartMirror from './pages/SmartMirror';
 import Settings from './pages/Settings';
 import Model from './pages/Model';
 import ModelSettings from './pages/ModelSettings';
+import PhonePair from './pages/PhonePair';
 import PairingScreen from './components/PairingScreen';
 import WelcomeScreen from './components/WelcomeScreen';
 import { LanguageProvider } from './contexts/LanguageContext';
@@ -45,6 +46,12 @@ function AppShell() {
 }
 
 function App() {
+  // /phone-pair is a standalone page for phones scanning the mirror QR code.
+  // It runs outside the mirror's intro flow and doesn't need the mirror contexts.
+  if (window.location.pathname === '/phone-pair') {
+    return <PhonePair />;
+  }
+
   return (
     <GuestModeProvider>
       <ProfileProvider>
@@ -53,7 +60,6 @@ function App() {
         </LanguageProvider>
       </ProfileProvider>
     </GuestModeProvider>
-
   );
 }
 

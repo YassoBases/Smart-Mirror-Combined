@@ -16,6 +16,7 @@ import * as http from 'http';
 import { getEmitter, getState, getPhase, factoryReset, getMirrorPublicKey } from './index';
 import type { MirrorState, SyncPhase } from './types';
 import { loadConfig } from './config';
+import { getLocalIp } from './ip';
 
 export function startBridge(): http.Server {
   const { bridgePort } = loadConfig();
@@ -75,6 +76,18 @@ export function startBridge(): http.Server {
       void factoryReset();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    if (req.method === 'GET' && url === '/ip') {
+      const { mirrorHttpPort } = loadConfig();
+      const ip = getLocalIp();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ip,
+        mirrorUrl: `http://${ip}:${mirrorHttpPort}`,
+        warning: ip === '127.0.0.1' ? 'Could not detect LAN IP — phone pairing will not work' : null,
+      }));
       return;
     }
 

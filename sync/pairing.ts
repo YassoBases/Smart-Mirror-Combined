@@ -28,6 +28,7 @@ export class PairingSession extends EventEmitter {
   constructor(
     private readonly conn: Connection,
     private readonly backendUrl: string,
+    private readonly mirrorHttpUrl: string,
     private readonly identityPath: string,
   ) {
     super();
@@ -86,25 +87,33 @@ export class PairingSession extends EventEmitter {
 
     const nonce = await randomBytes(16);
     const payload: QRPayload = {
-      v:       1,
-      backend: this.backendUrl,
-      sid:     this.sid,
-      mpk:     this.keypair.publicKey,
+      v:         1,
+      backend:   this.backendUrl,
+      mirrorUrl: this.mirrorHttpUrl,
+      sid:       this.sid,
+      mpk:       this.keypair.publicKey,
       nonce,
-      code:    this.shortCode,
+      code:      this.shortCode,
     };
     const raw = JSON.stringify(payload);
 
-    // Generate a data-URL PNG so the React UI can render <img src={dataUrl} />
+    // QR image encodes a URL so the phone camera app can open it directly in a
+    // browser, and programmatic QR readers can extract the IP/port/params.
+    // Format: http://<LAN_IP>:<PORT>/pair?sid=<SID>&code=<CODE>
+    const pairingUrl =
+      `${this.mirrorHttpUrl}/pair` +
+      `?sid=${encodeURIComponent(this.sid)}` +
+      `&code=${encodeURIComponent(this.shortCode)}`;
+
     let dataUrl = '';
     try {
       const qrcode = await import('qrcode');
-      dataUrl = await qrcode.toDataURL(raw, { errorCorrectionLevel: 'M', width: 300 });
+      dataUrl = await qrcode.toDataURL(pairingUrl, { errorCorrectionLevel: 'M', width: 300 });
     } catch {
       // qrcode optional — caller can still encode `raw` with any library
     }
 
-    this.emit('qr', { raw, dataUrl, shortCode: this.shortCode });
+    this.emit('qr', { raw, dataUrl, shortCode: this.shortCode, pairingUrl });
   }
 
   private _startRefreshTimer(): void {

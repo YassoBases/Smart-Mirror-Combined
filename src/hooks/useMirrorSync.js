@@ -26,6 +26,7 @@ export function useMirrorSync() {
   const [shortCode,    setShortCode]   = useState(null);
   const [qrExpiring,   setQrExpiring]  = useState(false);
   const [bridgeOnline, setBridgeOnline]= useState(false);
+  const [mirrorIp,     setMirrorIp]    = useState(null);
 
   const pollTimer  = useRef(null);
   const bootTimer  = useRef(null);
@@ -85,6 +86,12 @@ export function useMirrorSync() {
       }
     }, BOOT_TIMEOUT_MS);
 
+    // Fetch mirror LAN IP once for display on the pairing screen
+    fetch(`${BASE}/ip`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.ip && !unmounted.current) setMirrorIp(d.ip); })
+      .catch(() => {});
+
     poll();
 
     return () => {
@@ -107,6 +114,7 @@ export function useMirrorSync() {
     shortCode,
     qrExpiring,
     bridgeOnline,
+    mirrorIp,
     isOffline: phase === 'offline',
     factoryReset,
   };

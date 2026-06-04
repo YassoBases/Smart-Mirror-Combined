@@ -4,6 +4,7 @@ import * as path from 'path';
 
 export interface MirrorConfig {
   backendUrl: string;
+  mirrorHttpPort: number; // HTTP port of the backend API (default 3000)
   identityPath: string;
   stateCachePath: string;
   bridgePort: number;
@@ -27,6 +28,8 @@ export function loadConfig(): MirrorConfig {
       process.env.MIRROR_BACKEND_URL ??
       file.backendUrl ??
       'wss://localhost:4000',
+    mirrorHttpPort:
+      Number(process.env.MIRROR_HTTP_PORT ?? file.mirrorHttpPort ?? 3000),
     identityPath:
       process.env.MIRROR_IDENTITY_PATH ??
       file.identityPath ??
