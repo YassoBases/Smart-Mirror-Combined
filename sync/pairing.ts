@@ -97,9 +97,9 @@ export class PairingSession extends EventEmitter {
     };
     const raw = JSON.stringify(payload);
 
-    // QR image encodes a URL so the phone camera app can open it directly in a
-    // browser, and programmatic QR readers can extract the IP/port/params.
-    // Format: http://<LAN_IP>:<PORT>/pair?sid=<SID>&code=<CODE>
+    // QR image encodes the JSON payload so the phone app can parse it directly.
+    // The payload now includes mirrorUrl (the LAN IP-based HTTP address) so the
+    // phone knows which server to call — this was the missing piece before.
     const pairingUrl =
       `${this.mirrorHttpUrl}/pair` +
       `?sid=${encodeURIComponent(this.sid)}` +
@@ -108,7 +108,7 @@ export class PairingSession extends EventEmitter {
     let dataUrl = '';
     try {
       const qrcode = await import('qrcode');
-      dataUrl = await qrcode.toDataURL(pairingUrl, { errorCorrectionLevel: 'M', width: 300 });
+      dataUrl = await qrcode.toDataURL(raw, { errorCorrectionLevel: 'M', width: 300 });
     } catch {
       // qrcode optional — caller can still encode `raw` with any library
     }
