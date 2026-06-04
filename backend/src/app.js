@@ -63,8 +63,11 @@ app.get("/api/mirror/netinfo", (_req, res) => {
   let ip = process.env.MIRROR_LAN_IP || null;
 
   if (!ip) {
+    // Skip virtual/container interfaces — they produce unreachable IPs for phones.
+    const VIRTUAL_IFACE = /^(docker|br-|veth|tun|tap|tailscale|zt|wg|virbr)/;
     const candidates = [];
     for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
+      if (VIRTUAL_IFACE.test(name)) continue;
       for (const a of addrs || []) {
         if (a.family === "IPv4" && !a.internal) {
           candidates.push({ name, address: a.address });

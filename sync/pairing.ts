@@ -4,7 +4,9 @@ import type { Identity, QRPayload } from './types';
 import { writeIdentity } from './identity';
 import { generateKeyPair, deriveSharedSecret, randomBytes, generatePairingCode } from './crypto';
 
-const REFRESH_INTERVAL_MS = 290_000; // refresh 10 s before the 5-min session window
+const REFRESH_INTERVAL_MS      = 290_000; // refresh 10 s before the 5-min session window
+const RESOLVE_POLL_INTERVAL_MS = 5_000;   // how often to retry resolving the LAN api URL
+const RESOLVE_POLL_TIMEOUT_MS  = 60_000;  // stop polling after 60 s
 
 /**
  * Drives the one-time pairing handshake.
@@ -19,6 +21,7 @@ export class PairingSession extends EventEmitter {
   private sid: string | null = null;
   private shortCode: string | null = null;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private resolvePoller: ReturnType<typeof setInterval> | null = null;
   private _stopped = false;
 
   // LAN HTTP API URL advertised in the QR. Resolved once via the backend's
@@ -40,24 +43,35 @@ export class PairingSession extends EventEmitter {
 
   // Asks the backend for its LAN-reachable API base URL. The browser/mirror
   // can't read the host's LAN IP, but the backend can. Cached after the first
-  // success; failures return null so the QR is still emitted (without `api`).
+  // success; on failure retries up to 3 times so a transient startup race
+  // doesn't permanently omit `api` from the QR.
   private async _resolveApiBaseUrl(): Promise<string | null> {
     if (this.apiBaseUrl) return this.apiBaseUrl;
-    try {
-      const base = this.httpApiUrl.replace(/\/$/, '');
-      const res = await fetch(`${base}/api/mirror/netinfo`);
-      if (!res.ok) return null;
-      const info = (await res.json()) as { apiBaseUrl?: string };
-      this.apiBaseUrl = info.apiBaseUrl ?? null;
-      return this.apiBaseUrl;
-    } catch {
-      return null; // non-fatal — phone can still use manual entry / its default
+    const base = this.httpApiUrl.replace(/\/$/, '');
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (attempt > 0) await new Promise<void>(r => setTimeout(r, 1000 * attempt));
+        if (this.apiBaseUrl) return this.apiBaseUrl; // resolved by a concurrent call
+        const res = await fetch(`${base}/api/mirror/netinfo`);
+        if (!res.ok) continue;
+        const info = (await res.json()) as { apiBaseUrl?: string };
+        if (info.apiBaseUrl) {
+          this.apiBaseUrl = info.apiBaseUrl;
+          return this.apiBaseUrl;
+        }
+      } catch {
+        // retry
+      }
     }
+    return null; // non-fatal — background poller will re-emit when it resolves
   }
 
   async start(existingKeypair?: { publicKey: string; privateKey: string }): Promise<void> {
     this.keypair   = existingKeypair ?? await generateKeyPair();
     this.shortCode = await generatePairingCode();
+
+    // Resolve eagerly so apiBaseUrl is likely cached before the first pairing_session.
+    void this._resolveApiBaseUrl();
 
     // Persist private key immediately so a mid-pairing crash doesn't lose it
     writeIdentity(this.identityPath, {
@@ -74,6 +88,7 @@ export class PairingSession extends EventEmitter {
   stop(): void {
     this._stopped = true;
     this._clearRefresh();
+    this._clearResolvePoller();
     this.conn.off('connected', this._onConnected);
     this.conn.off('message',   this._onMessage);
   }
@@ -129,6 +144,10 @@ export class PairingSession extends EventEmitter {
     }
 
     this.emit('qr', { raw, dataUrl, shortCode: this.shortCode });
+
+    // If api is still unresolved, poll in the background so the QR self-upgrades
+    // to include `api` within seconds rather than waiting for the 290 s refresh.
+    if (!apiBaseUrl) this._startResolvePoller();
   }
 
   private _startRefreshTimer(): void {
@@ -149,6 +168,25 @@ export class PairingSession extends EventEmitter {
 
   private _clearRefresh(): void {
     if (this.refreshTimer) { clearInterval(this.refreshTimer); this.refreshTimer = null; }
+  }
+
+  private _startResolvePoller(): void {
+    if (this.resolvePoller) return; // idempotent — only one poller at a time
+    let elapsed = 0;
+    this.resolvePoller = setInterval(async () => {
+      if (this._stopped) { this._clearResolvePoller(); return; }
+      elapsed += RESOLVE_POLL_INTERVAL_MS;
+      if (elapsed > RESOLVE_POLL_TIMEOUT_MS) { this._clearResolvePoller(); return; }
+      const url = await this._resolveApiBaseUrl();
+      if (url) {
+        this._clearResolvePoller();
+        await this._emitQR();
+      }
+    }, RESOLVE_POLL_INTERVAL_MS);
+  }
+
+  private _clearResolvePoller(): void {
+    if (this.resolvePoller) { clearInterval(this.resolvePoller); this.resolvePoller = null; }
   }
 
   private async _handleLinked(msg: {
