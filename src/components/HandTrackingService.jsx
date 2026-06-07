@@ -34,7 +34,7 @@ const clamp01 = (value) => Math.min(Math.max(value, 0), 1);
 const FPS_SMOOTHING = 0.9;
 
 const FACE_MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
-const FACE_DETECT_INTERVAL_MS = 3000;
+const FACE_DETECT_INTERVAL_MS = 1500;
 
 const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, enabled }) => {
   const videoRef = useRef(null);

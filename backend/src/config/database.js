@@ -91,6 +91,10 @@ const dbPromise = open({ filename: DB_PATH, driver: sqlite3.Database }).then(
     await db
       .run(`ALTER TABLE profiles ADD COLUMN widgets_config TEXT`)
       .catch(() => {});
+    // Multi-pose face enrollment: JSON array of filenames
+    await db
+      .run(`ALTER TABLE profiles ADD COLUMN face_filenames TEXT`)
+      .catch(() => {});
 
     // AI assistant settings (household-scoped)
     await db.exec(`

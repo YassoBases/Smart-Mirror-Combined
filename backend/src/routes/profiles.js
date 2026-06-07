@@ -16,8 +16,8 @@ const storage = multer.diskStorage({
     cb(null, dir);
   },
   filename: (req, file, cb) => {
-    // Saves file as profile_1_170000000.jpg
-    cb(null, `profile_${req.params.id}_${Date.now()}.jpg`);
+    const rand = Math.floor(Math.random() * 1_000_000);
+    cb(null, `profile_${req.params.id}_${Date.now()}_${rand}.jpg`);
   },
 });
 const upload = multer({ storage });
@@ -30,12 +30,20 @@ router.get("/:id", authenticate, profileController.getOne);
 // Delete profile
 router.delete("/:id", authenticate, profileController.remove);
 
-// Face Setup Upload
+// Face Setup Upload — single image (legacy / backward compat)
 router.post(
   "/:id/face",
   authenticate,
   upload.single("face"),
   profileController.uploadFace,
+);
+
+// Multi-pose face upload — up to 6 images (front + left + right)
+router.post(
+  "/:id/faces",
+  authenticate,
+  upload.array("faces", 6),
+  profileController.uploadFaces,
 );
 
 // Mirror linking — set which mirror this profile appears on

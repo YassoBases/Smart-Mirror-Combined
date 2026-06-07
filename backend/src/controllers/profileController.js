@@ -117,7 +117,32 @@ async function uploadFace(req, res, next) {
   }
 }
 
-// --- NEW FUNCTION: Update Widgets ---
+async function uploadFaces(req, res, next) {
+  try {
+    const profile = await profileService.getProfile(Number(req.params.id));
+    if (profile.household_id !== req.account.householdId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: "No face images uploaded" });
+    }
+    const names = req.files.map((f) => f.filename);
+    const db = await getDb();
+    await db.run(
+      "UPDATE profiles SET face_filenames = ?, face_filename = ? WHERE id = ?",
+      JSON.stringify(names),
+      names[0],
+      profile.id,
+    );
+    console.log(
+      `[Backend] ${names.length} face pose(s) saved for profile ${profile.id}`,
+    );
+    res.json({ message: "Faces registered successfully", count: names.length });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function updateWidgets(req, res, next) {
   try {
     const profile = await profileService.getProfile(Number(req.params.id));
@@ -142,5 +167,6 @@ module.exports = {
   getByMirrorId,
   remove,
   uploadFace,
+  uploadFaces,
   updateWidgets,
 };

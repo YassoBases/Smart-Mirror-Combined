@@ -120,6 +120,9 @@ const SmartMirror = () => {
   // Tracks how many consecutive null-detection frames before we consider the face "gone"
   const faceMissCountRef = useRef(0);
   const FACE_MISS_THRESHOLD = 4; // ~6 seconds at 1.5s interval before considering face left
+  // Consecutive-match confirmation: require 2 detections in a row before switching user
+  const consecutiveMatchCountRef = useRef(0);
+  const lastMatchedUserIdRef = useRef(null);
 
   useEffect(() => {
     sleepStateRef.current = sleepState;
@@ -393,6 +396,8 @@ const SmartMirror = () => {
       faceMissCountRef.current += 1;
       if (faceMissCountRef.current >= FACE_MISS_THRESHOLD) {
         setFaceStatus('scanning');
+        consecutiveMatchCountRef.current = 0;
+        lastMatchedUserIdRef.current = null;
       }
       return;
     }
@@ -404,6 +409,19 @@ const SmartMirror = () => {
     if (match) {
       const { user } = match;
       if (!user) return;
+
+      // Consecutive-match confirmation: require 2 detections before switching
+      if (lastMatchedUserIdRef.current === user.id) {
+        consecutiveMatchCountRef.current = Math.min(consecutiveMatchCountRef.current + 1, 10);
+      } else {
+        lastMatchedUserIdRef.current = user.id;
+        consecutiveMatchCountRef.current = 1;
+      }
+
+      if (lockedFaceUserRef.current?.id !== user.id && consecutiveMatchCountRef.current < 2) {
+        setFaceStatus('scanning'); // first match — wait for confirmation
+        return;
+      }
 
       if (lockedFaceUserRef.current?.id !== user.id) {
         lockedFaceUserRef.current = user;

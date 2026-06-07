@@ -34,7 +34,7 @@ async function createProfile({ householdId, name, email }) {
 async function listProfiles(householdId) {
   const db = await getDb();
   return db.all(
-    "SELECT id, household_id, name, email, google_sub, mirror_id, face_filename, widgets_config, created_at FROM profiles WHERE household_id = ? ORDER BY name",
+    "SELECT id, household_id, name, email, google_sub, mirror_id, face_filename, face_filenames, widgets_config, created_at FROM profiles WHERE household_id = ? ORDER BY name",
     householdId,
   );
 }
@@ -52,7 +52,7 @@ async function setMirrorId(profileId, mirrorId) {
 async function getProfilesByMirrorId(mirrorId) {
   const db = await getDb();
   return db.all(
-    `SELECT p.id, p.household_id, p.name, p.email, p.google_sub, p.mirror_id, p.face_filename, p.widgets_config, p.created_at,
+    `SELECT p.id, p.household_id, p.name, p.email, p.google_sub, p.mirror_id, p.face_filename, p.face_filenames, p.widgets_config, p.created_at,
             CASE WHEN gc.profile_id IS NOT NULL THEN 1 ELSE 0 END AS gmail_connected
      FROM profiles p
      LEFT JOIN gmail_connections gc ON gc.profile_id = p.id
