@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import SmartMirror from './pages/SmartMirror';
 import Settings from './pages/Settings';
@@ -7,16 +7,51 @@ import ModelSettings from './pages/ModelSettings';
 import PhonePair from './pages/PhonePair';
 import PairingScreen from './components/PairingScreen';
 import WelcomeScreen from './components/WelcomeScreen';
+import SetupMode from './components/SetupMode';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { GuestModeProvider } from './contexts/GuestModeContext';
+import { backendApi } from './services/backendApi';
 
-// Flow: 'pairing' → 'welcome' (3 s) → 'mirror'
+// Flow: [SetupMode if offline] → 'pairing' → 'welcome' (3 s) → 'mirror'
 function AppShell() {
   const [introPhase, setIntroPhase] = useState('pairing');
+  // null = initial check in progress; true = no LAN IP yet; false = online
+  const [isOffline, setIsOffline] = useState(null);
 
   const handlePairingComplete = useCallback(() => setIntroPhase('welcome'), []);
   const handleWelcomeDone     = useCallback(() => setIntroPhase('mirror'),  []);
+
+  // Poll netinfo — show SetupMode until the Pi has a LAN IP.
+  useEffect(() => {
+    let cancelled = false;
+    let timerId = null;
+
+    const check = async () => {
+      try {
+        await backendApi.getNetInfo();
+        if (!cancelled) {
+          setIsOffline(false);
+          clearInterval(timerId);
+        }
+      } catch {
+        if (!cancelled) setIsOffline(v => (v === false ? false : true));
+      }
+    };
+
+    check();
+    timerId = setInterval(check, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timerId);
+    };
+  }, []);
+
+  // Brief connecting state — show a plain black screen to avoid a flash.
+  if (isOffline === null) return <div className="fixed inset-0 bg-black" />;
+
+  // Pi has no LAN IP yet — guide the customer through WiFi setup.
+  if (isOffline) return <SetupMode />;
 
   return (
     <Router

@@ -14,6 +14,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ── 0. WiFi guard — bring the Pi online before starting mirror services ───────
+# No-op if already connected; blocks until the customer provides WiFi credentials
+# via the SmartMirror-Setup captive portal. The systemd unit is the primary path;
+# this covers manual starts and development restarts.
+WIFI_GUARD="$SCRIPT_DIR/provisioning/wifi-guard.sh"
+if [[ -x "$WIFI_GUARD" ]]; then
+  echo "[0/4] WiFi guard (skips if already connected)..."
+  "$WIFI_GUARD" || echo "[!]  wifi-guard exited with errors — continuing anyway."
+fi
+
 PI_IP=$(hostname -I | awk '{print $1}')
 
 cleanup() {
