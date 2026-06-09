@@ -463,9 +463,11 @@ router.post('/spotify/play-track', async (req, res) => {
 // ── POST /api/mirrors/:mirrorId/unknown-face ──────────────────────────────────
 // Called by the mirror when face recognition sees an unknown person.
 // No auth — mirror-side fire-and-forget; resolved to household via mirror_id.
+// Optional body: { confidence: number, imageData: string (base64 JPEG) }
 router.post('/:mirrorId/unknown-face', async (req, res, next) => {
   try {
     const { mirrorId } = req.params;
+    const { confidence, imageData } = req.body || {};
     const db = await getDb();
 
     const row = await db.get(
@@ -478,12 +480,43 @@ router.post('/:mirrorId/unknown-face', async (req, res, next) => {
 
     if (!row) return res.status(404).json({ error: 'Mirror not found' });
 
+    // Save optional image snapshot
+    let imagePath = null;
+    if (imageData && typeof imageData === 'string') {
+      const fs   = require('fs');
+      const path = require('path');
+      const dir  = path.join(__dirname, '../../data/alert-snapshots');
+      fs.mkdirSync(dir, { recursive: true });
+      const filename = `alert_${Date.now()}_${String(mirrorId).slice(0, 8)}.jpg`;
+      try {
+        fs.writeFileSync(path.join(dir, filename), Buffer.from(imageData, 'base64'));
+        imagePath = filename;
+      } catch (imgErr) {
+        console.warn('[mirrors] Failed to save alert snapshot:', imgErr.message);
+      }
+    }
+
+    // Persist alert so the phone can fetch it even after missing the push notification
+    const result = await db.run(
+      `INSERT INTO security_alerts (household_id, mirror_id, alert_type, confidence, image_path)
+       VALUES (?, ?, 'UNKNOWN_FACE_DETECTED', ?, ?)`,
+      row.household_id, mirrorId, confidence ?? null, imagePath,
+    );
+    const alertId = result.lastID;
+    console.log(`[mirrors] Security alert #${alertId} stored for household ${row.household_id}`);
+
     await sendToHousehold(row.household_id, {
       title: 'Security Alert',
       body:  'Unknown face detected at your mirror',
+      data: {
+        alertId:   String(alertId),
+        alertType: 'UNKNOWN_FACE_DETECTED',
+        mirrorId,
+        timestamp: new Date().toISOString(),
+      },
     });
 
-    res.json({ ok: true });
+    res.json({ ok: true, alertId });
   } catch (err) {
     next(err);
   }

@@ -168,9 +168,11 @@ export const removeFaceDescriptor = (userId) => {
  * Finds the best-matching user for a given descriptor using Euclidean distance.
  * Handles both single-descriptor (legacy number[]) and multi-descriptor (number[][]) storage.
  * Returns { user, distance } or null if no stored descriptors are below threshold.
- * Default threshold of 0.55 works well for face-api.js faceRecognitionNet.
+ * Default threshold of 0.6 is face-api.js's documented good-match cutoff — strict
+ * enough to reject strangers (typically > 0.65) while still recognising the owner
+ * across lighting/pose variation (often 0.55–0.6).
  */
-export const findUserByFace = (descriptor, threshold = 0.55) => {
+export const findUserByFace = (descriptor, threshold = 0.6) => {
   const stored = getFaceDescriptors();
   const { profiles } = getUsers();
   let bestUser = null;
@@ -199,6 +201,32 @@ export const findUserByFace = (descriptor, threshold = 0.55) => {
   }
 
   return bestDistance < threshold ? { user: bestUser, distance: bestDistance } : null;
+};
+
+/**
+ * Returns the Euclidean distance to the closest enrolled face, regardless of threshold.
+ * Useful for attaching a confidence score to an unknown-face alert.
+ * Returns null when no face descriptors are enrolled yet.
+ */
+export const findBestFaceDistance = (descriptor) => {
+  const stored = getFaceDescriptors();
+  let best = null;
+
+  for (const storedEntry of Object.values(stored)) {
+    if (!Array.isArray(storedEntry)) continue;
+    const list = Array.isArray(storedEntry[0]) ? storedEntry : [storedEntry];
+    for (const storedDesc of list) {
+      if (!Array.isArray(storedDesc) || storedDesc.length !== descriptor.length) continue;
+      let sum = 0;
+      for (let i = 0; i < descriptor.length; i++) {
+        const diff = descriptor[i] - storedDesc[i];
+        sum += diff * diff;
+      }
+      const dist = Math.sqrt(sum);
+      if (best === null || dist < best) best = dist;
+    }
+  }
+  return best;
 };
 
 /**

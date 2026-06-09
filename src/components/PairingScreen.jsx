@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
 import { useMirrorSync } from '../hooks/useMirrorSync';
 import { useGuestMode } from '../contexts/GuestModeContext';
+import GestureControl from './GestureControl';
 
-// NOTE: No HandTrackingService here — SmartMirror already owns the single WASM
-// instance and its CursorOverlay (position:fixed, z-9999) floats above this
-// screen. SmartMirror's pinch-to-click uses document.elementFromPoint, so it
-// fires on any button visible on screen, including "Enter Mirror" below.
+// This screen renders before the mirror, so SmartMirror's hand tracking is not
+// mounted yet. GestureControl provides its own cursor + pinch-to-click here
+// (face-recognition model off) so the QR/code screen is fully gesture-operable.
 
 // ─── Main pairing / login screen ─────────────────────────────────────────────
 
@@ -38,6 +38,9 @@ export default function PairingScreen({ onComplete }) {
 
   return (
     <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black text-white select-none overflow-hidden">
+
+      {/* Hand-gesture cursor + pinch-to-click for the pairing screen (no face model). */}
+      <GestureControl />
 
       {/* Ambient glow */}
       <div

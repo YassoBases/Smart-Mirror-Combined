@@ -126,13 +126,22 @@ export const backendApi = {
   },
 
   /**
-   * Reports an unknown-face detection to the backend, which forwards a
-   * push notification to all registered phones in the household.
+   * Reports an unknown-face detection to the backend, which stores the alert
+   * and forwards a push notification to all registered phones in the household.
+   * @param {string} mirrorId
+   * @param {{ confidence?: number, imageData?: string }} options
+   *   confidence — Euclidean distance from the closest enrolled face (lower = more similar).
+   *   imageData  — Optional base64-encoded JPEG snapshot from the mirror camera.
    */
-  reportUnknownFace: async (mirrorId) => {
+  reportUnknownFace: async (mirrorId, { confidence, imageData } = {}) => {
     try {
       await fetch(`${API_URL}/api/mirrors/${encodeURIComponent(mirrorId)}/unknown-face`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confidence: confidence ?? null,
+          imageData:  imageData  ?? null,
+        }),
       });
       console.log('[Mirror] Unknown-face alert sent');
     } catch (e) {

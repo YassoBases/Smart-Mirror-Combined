@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { DeviceAccountButton } from '../components/PairingScreen';
 import MirrorIdQRCode from '../components/MirrorIdQRCode';
+import GestureControl from '../components/GestureControl';
 import { apps, saveAppSettings, toggleAppEnabled } from '../data/apps';
 import { getUsers, migrateUsersIfNeeded } from '../data/users';
 import { backendApi } from '../services/backendApi';
@@ -769,6 +770,8 @@ const Settings = () => {
 
   return (
     <div className="min-h-screen bg-black text-white">
+      {/* Hand-gesture cursor + pinch-to-click for this page (no face model). */}
+      <GestureControl />
       <div className="container mx-auto px-4 py-10">
         <div className="flex items-center justify-between mb-10">
           <div>
@@ -922,6 +925,20 @@ const Settings = () => {
                     <span className="block text-sm text-white/75">Hover highlight</span>
                     <span className="block text-xs text-white/30 mt-1">
                       Flash border on cursor hover.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 rounded-xl px-4 py-3 cursor-pointer" style={{ border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}>
+                  <input
+                    type="checkbox"
+                    className="lux-checkbox mt-0.5"
+                    checked={generalSettings.faceRecognitionEnabled !== false}
+                    onChange={(event) => handleGeneralSettingChange({ faceRecognitionEnabled: event.target.checked, faceRecognitionMigrated: true })}
+                  />
+                  <span>
+                    <span className="block text-sm text-white/75">Face recognition</span>
+                    <span className="block text-xs text-white/30 mt-1">
+                      Auto-switch profile for known faces &amp; alert on unknown ones.
                     </span>
                   </span>
                 </label>

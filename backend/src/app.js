@@ -10,6 +10,7 @@ const gmailRoutes = require("./routes/gmail");
 const spotifyRoutes = require("./routes/spotify");
 const mirrorsRoutes = require("./routes/mirrors");
 const devicesRoutes    = require("./routes/devices");
+const alertsRoutes     = require("./routes/alerts");
 const { getByMirrorId } = require("./controllers/profileController");
 
 const app = express();
@@ -24,6 +25,9 @@ app.use(express.json());
 
 // Serve uploaded faces statically at http://127.0.0.1:3000/faces/filename.jpg
 app.use("/faces", express.static(path.join(__dirname, "../data/faces")));
+
+// Serve alert snapshot images at http://<host>:3000/alert-snapshots/filename.jpg
+app.use("/alert-snapshots", express.static(path.join(__dirname, "../data/alert-snapshots")));
 
 // Routes
 app.use("/api/auth", authRoutes);
@@ -42,6 +46,9 @@ app.use("/api/mirrors", mirrorsRoutes);
 
 // FCM device token registration (authenticated)
 app.use("/api/devices", devicesRoutes);
+
+// Security alerts — store & fetch unknown-face alerts (authenticated)
+app.use("/api/alerts", alertsRoutes);
 
 // Health check — useful for the mirror to verify connectivity
 app.get("/health", (_req, res) => {

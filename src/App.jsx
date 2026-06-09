@@ -5,9 +5,11 @@ import Settings from './pages/Settings';
 import Model from './pages/Model';
 import ModelSettings from './pages/ModelSettings';
 import PhonePair from './pages/PhonePair';
+import Alerts from './pages/Alerts';
 import PairingScreen from './components/PairingScreen';
 import WelcomeScreen from './components/WelcomeScreen';
 import SetupMode from './components/SetupMode';
+import VirtualKeyboard from './components/VirtualKeyboard';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { GuestModeProvider } from './contexts/GuestModeContext';
@@ -61,6 +63,9 @@ function AppShell() {
       }}
     >
       <div className="App">
+        {/* Global on-screen keyboard — appears whenever a text field is focused,
+            on every screen (pairing, mirror, settings). Typed via pinch-click. */}
+        <VirtualKeyboard />
         {introPhase === 'pairing' && (
           <PairingScreen onComplete={handlePairingComplete} />
         )}
@@ -85,6 +90,11 @@ function App() {
   // It runs outside the mirror's intro flow and doesn't need the mirror contexts.
   if (window.location.pathname === '/phone-pair') {
     return <PhonePair />;
+  }
+
+  // /alerts is the phone-side security alerts viewer — no mirror intro flow needed.
+  if (window.location.pathname === '/alerts') {
+    return <Alerts />;
   }
 
   return (

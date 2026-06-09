@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 // API base uses the mirror's LAN IP (same host as the React app, different port)
 const API_BASE = `http://${window.location.hostname}:3000`;
@@ -25,6 +25,59 @@ export default function PhonePair() {
   const [error,    setError]    = useState(null);
   const [loading,  setLoading]  = useState(false);
   const [reachable, setReachable] = useState(null); // null=checking, true, false
+
+  // ── FCM web push registration ────────────────────────────────────────────────
+  // Requires Firebase to be configured (REACT_APP_FIREBASE_* env vars).
+  // Runs once after the mirror is successfully paired and a JWT is available.
+  const registerFcmToken = useCallback(async (jwtToken) => {
+    try {
+      // These env vars must be set in your .env file for web push to work.
+      // See NOTIFICATIONS_SETUP.md for full instructions.
+      const firebaseConfig = {
+        apiKey:            process.env.REACT_APP_FIREBASE_API_KEY,
+        authDomain:        process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+        projectId:         process.env.REACT_APP_FIREBASE_PROJECT_ID,
+        storageBucket:     process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+        messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+        appId:             process.env.REACT_APP_FIREBASE_APP_ID,
+      };
+      const vapidKey = process.env.REACT_APP_FIREBASE_VAPID_KEY;
+
+      // Skip silently when Firebase is not configured (dev / no push setup)
+      if (!firebaseConfig.projectId || !vapidKey) return;
+
+      const { initializeApp, getApps } = await import('firebase/app');
+      const { getMessaging, getToken, isSupported } = await import('firebase/messaging');
+
+      if (!await isSupported()) return; // browser doesn't support web push
+
+      const fbApp = getApps().length === 0
+        ? initializeApp(firebaseConfig)
+        : getApps()[0];
+      const messaging = getMessaging(fbApp);
+
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+
+      const fcmToken = await getToken(messaging, { vapidKey });
+      if (!fcmToken) return;
+
+      // Register the token with our backend
+      await fetch(`${API_BASE}/api/devices/token`, {
+        method:  'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization:  `Bearer ${jwtToken}`,
+        },
+        body: JSON.stringify({ token: fcmToken, platform: 'web' }),
+      });
+
+      console.log('[PhonePair] FCM token registered');
+    } catch (e) {
+      // Non-fatal — the alerts page polling still works without push
+      console.warn('[PhonePair] FCM registration failed:', e.message);
+    }
+  }, []);
 
   // Skip login step if already authenticated
   useEffect(() => {
@@ -139,6 +192,8 @@ export default function PhonePair() {
         // Save mirror address so the app can call the backend in the future
         localStorage.setItem('mirrorServerUrl', API_BASE);
         localStorage.setItem('mirrorId', data.mirrorId);
+        // Register for FCM web push (non-blocking, fails silently if unconfigured)
+        registerFcmToken(token);
         setStep('done');
       } catch (err) {
         setError(err.message);
@@ -176,7 +231,16 @@ export default function PhonePair() {
       <Page>
         <div style={{ fontSize: '3rem', marginBottom: '16px' }}>✓</div>
         <h1 style={{ ...s.title, color: '#4ade80' }}>Mirror paired!</h1>
-        <p style={s.sub}>Your mirror is now linked to your account.<br />You can close this window.</p>
+        <p style={s.sub}>Your mirror is now linked to your account.</p>
+        <p style={{ ...s.sub, marginBottom: '24px' }}>
+          You will receive security alerts when an unknown face is detected.
+        </p>
+        <Btn onClick={() => { window.location.href = '/alerts'; }}>
+          View Security Alerts
+        </Btn>
+        <Btn secondary onClick={() => { /* stay on page */ }}>
+          Close
+        </Btn>
       </Page>
     );
   }

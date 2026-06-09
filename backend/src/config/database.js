@@ -124,6 +124,20 @@ const dbPromise = open({ filename: DB_PATH, driver: sqlite3.Database }).then(
       );
     `);
 
+    // Security alerts — stored so missed push notifications are still viewable
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS security_alerts (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        household_id  INTEGER NOT NULL,
+        mirror_id     TEXT    NOT NULL,
+        alert_type    TEXT    NOT NULL DEFAULT 'UNKNOWN_FACE_DETECTED',
+        confidence    REAL,
+        image_path    TEXT,
+        created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (household_id) REFERENCES households(id) ON DELETE CASCADE
+      );
+    `);
+
     return db;
   },
 );
