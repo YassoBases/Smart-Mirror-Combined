@@ -15,7 +15,8 @@ const DraggableApp = ({
   isHoverHighlighted = false,
   widgetShadowsEnabled = true,
   isActive = false,           // True when this widget is click-selected
-  onActivate = null           // Callback to mark this widget as active
+  onActivate = null,          // Callback to mark this widget as active
+  gestureEnabled = true
 }) => {
   const [position, setPosition] = useState(initialPosition);
   const [size, setSize] = useState(initialSize);
@@ -24,6 +25,7 @@ const DraggableApp = ({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const [isHovered, setIsHovered] = useState(false);
+  const [locked, setLocked] = useState(false);
 
   const appRef = useRef(null);
 
@@ -38,9 +40,10 @@ const DraggableApp = ({
     const saved = localStorage.getItem(`smartMirror_${appId}_layout`);
     if (saved) {
       try {
-        const { position: savedPos, size: savedSize } = JSON.parse(saved);
+        const { position: savedPos, size: savedSize, locked: savedLocked } = JSON.parse(saved);
         if (savedPos) setPosition(savedPos);
         if (savedSize) setSize(savedSize);
+        if (savedLocked !== undefined) setLocked(savedLocked);
       } catch (e) {
         console.error('Error loading saved layout:', e);
       }
@@ -65,17 +68,22 @@ const DraggableApp = ({
   // to avoid conflicts with internal state updates.
 
   // Save position and size to localStorage
-  const saveLayout = (newPosition, newSize) => {
+  const saveLayout = (newPosition, newSize, newLocked) => {
     const layout = {
       position: newPosition || position,
-      size: newSize || size
+      size: newSize || size,
+      locked: newLocked !== undefined ? newLocked : locked
     };
     localStorage.setItem(`smartMirror_${appId}_layout`, JSON.stringify(layout));
   };
 
+  const canMove = gestureEnabled && !locked;
+
   // Mouse down handler for dragging
   const handleMouseDown = (e) => {
     if (e.target.classList.contains('resize-handle')) return;
+    if (e.target.closest('.widget-lock-btn')) return;
+    if (!canMove) return;
     if (isExternallyDragged) return; // Don't handle mouse events when externally dragged
     
     setIsDragging(true);
@@ -89,6 +97,7 @@ const DraggableApp = ({
 
   // Mouse down handler for resizing
   const handleResizeMouseDown = (e) => {
+    if (!canMove) return;
     setIsResizing(true);
     setResizeStart({
       x: e.clientX,
@@ -146,6 +155,7 @@ const DraggableApp = ({
       ref={appRef}
       className="draggable-app absolute"
       data-app-id={appId}
+      data-locked={locked ? 'true' : 'false'}
       style={{
         left: (externalPosition ? externalPosition.x : position.x),
         top: (externalPosition ? externalPosition.y : position.y),
@@ -164,7 +174,7 @@ const DraggableApp = ({
       <div
         className="w-full h-full bg-black/80 overflow-hidden"
         style={{
-          cursor: isDragging ? 'grabbing' : 'grab',
+          cursor: !canMove ? 'default' : isDragging ? 'grabbing' : 'grab',
           border: isActive
             ? '1px solid var(--mirror-accent-color)'
             : hoverHighlightEnabled && (isHovered || isHoverHighlighted)
@@ -194,6 +204,50 @@ const DraggableApp = ({
         {children}
       </div>
       
+      {/* Per-widget lock toggle — visible only when gesture recognition is enabled */}
+      {gestureEnabled && (
+        <button
+          className="widget-lock-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            const newLocked = !locked;
+            setLocked(newLocked);
+            saveLayout(undefined, undefined, newLocked);
+          }}
+          style={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
+            width: 28,
+            height: 28,
+            padding: 0,
+            background: 'rgba(0,0,0,0.45)',
+            border: 'none',
+            borderRadius: 6,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 20,
+            color: locked ? 'var(--mirror-accent-color)' : 'rgba(255,255,255,0.35)',
+            transition: 'color 0.2s'
+          }}
+          title={locked ? 'Unlock widget' : 'Lock widget position'}
+        >
+          {locked ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+            </svg>
+          )}
+        </button>
+      )}
+
       {/* Resize handle */}
       <div
         className="resize-handle"

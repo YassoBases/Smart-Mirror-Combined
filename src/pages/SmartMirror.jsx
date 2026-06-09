@@ -601,7 +601,10 @@ const SmartMirror = () => {
 
       pinchStartTimeRef.current = Date.now();
       pinchStartPositionRef.current = { x: position.x, y: position.y };
-      pinchTargetRef.current = targetApp ? { element: targetApp, inResizeZone } : null;
+      const canTargetMove = targetApp &&
+        generalSettings.gestureEnabled &&
+        targetApp.dataset.locked !== 'true';
+      pinchTargetRef.current = canTargetMove ? { element: targetApp, inResizeZone } : null;
       pinchMaxMoveRef.current = 0;
     }
 
@@ -709,7 +712,8 @@ const SmartMirror = () => {
         const existing = JSON.parse(localStorage.getItem(`smartMirror_${rt.appId}_layout`) || '{}');
         localStorage.setItem(`smartMirror_${rt.appId}_layout`, JSON.stringify({
           position: existing.position || { x: 0, y: 0 },
-          size: finalSize
+          size: finalSize,
+          locked: existing.locked ?? false
         }));
         setAppSizes(prev => ({ ...prev, [rt.appId]: finalSize }));
         clearResizeState();
@@ -719,9 +723,11 @@ const SmartMirror = () => {
           x: dt._lastLeft ?? dt.initialPosition.x,
           y: dt._lastTop  ?? dt.initialPosition.y
         };
+        const existingLayout = JSON.parse(localStorage.getItem(`smartMirror_${dt.appId}_layout`) || '{}');
         localStorage.setItem(`smartMirror_${dt.appId}_layout`, JSON.stringify({
           position: { x: finalPosition.x, y: finalPosition.y },
-          size: { width: dt.element?.offsetWidth || 300, height: dt.element?.offsetHeight || 200 }
+          size: { width: dt.element?.offsetWidth || 300, height: dt.element?.offsetHeight || 200 },
+          locked: existingLayout.locked ?? false
         }));
         setAppPositions(prev => ({ ...prev, [dt.appId]: finalPosition }));
         clearDragState();
@@ -798,6 +804,7 @@ const SmartMirror = () => {
         widgetShadowsEnabled={generalSettings.widgetShadows}
         isActive={activeWidgetId === app.id}
         onActivate={() => setActiveWidgetId(app.id)}
+        gestureEnabled={generalSettings.gestureEnabled}
       >
         <AppComponent appId={app.id} />
       </DraggableApp>

@@ -88,7 +88,8 @@ const DEFAULT_SETTINGS = {
   widgetHoverHighlight: false,
   faceRecognitionEnabled: false,
   mirrorTimeoutEnabled: false,
-  mirrorTimeoutMinutes: 5
+  mirrorTimeoutMinutes: 5,
+  gestureEnabled: true
 };
 
 const readSettings = () => {
