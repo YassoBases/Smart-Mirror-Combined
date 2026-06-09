@@ -159,6 +159,34 @@ async function updateWidgets(req, res, next) {
   }
 }
 
+async function getAiSettings(req, res, next) {
+  try {
+    const profile = await profileService.getProfile(Number(req.params.id));
+    if (profile.household_id !== req.account.householdId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const settings = await profileService.getAiSettings(profile.id);
+    res.json({ settings });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function updateAiSettings(req, res, next) {
+  try {
+    const profile = await profileService.getProfile(Number(req.params.id));
+    if (profile.household_id !== req.account.householdId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const incoming = req.body.settings || {};
+    const updated = await profileService.updateAiSettings(profile.id, incoming);
+    const settings = updated.ai_settings ? JSON.parse(updated.ai_settings) : {};
+    res.json({ settings });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   create,
   list,
@@ -169,4 +197,6 @@ module.exports = {
   uploadFace,
   uploadFaces,
   updateWidgets,
+  getAiSettings,
+  updateAiSettings,
 };

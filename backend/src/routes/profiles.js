@@ -52,6 +52,10 @@ router.patch("/:id/mirror", authenticate, profileController.setMirror);
 // Widget configuration
 router.patch("/:id/widgets", authenticate, profileController.updateWidgets);
 
+// Per-profile AI assistant settings
+router.get("/:id/ai-settings", authenticate, profileController.getAiSettings);
+router.put("/:id/ai-settings", authenticate, profileController.updateAiSettings);
+
 // Gmail per profile
 router.get("/:id/gmail/connect", authenticate, gmailController.connect);
 router.get("/:id/gmail/messages", authenticate, gmailController.messages);

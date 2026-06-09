@@ -182,7 +182,7 @@ export const backendApi = {
       console.log('[Profile] Settings received:', normalized.settings);
       console.log('[Profile] Integrations received:', normalized.integrations);
       console.log('[Profile] Location received:', normalized.location);
-      return normalized;
+      return { ...normalized, aiSettings: data.aiSettings || null };
     } catch (err) {
       console.warn('[Profile] Poll error:', err.message);
       return null;

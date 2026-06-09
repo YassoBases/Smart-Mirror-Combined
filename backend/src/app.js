@@ -9,7 +9,6 @@ const profileRoutes = require("./routes/profiles");
 const gmailRoutes = require("./routes/gmail");
 const spotifyRoutes = require("./routes/spotify");
 const mirrorsRoutes = require("./routes/mirrors");
-const aiSettingsRoutes = require("./routes/ai_settings");
 const devicesRoutes    = require("./routes/devices");
 const { getByMirrorId } = require("./controllers/profileController");
 
@@ -40,9 +39,6 @@ app.get("/api/mirror/:mirrorId/profiles", getByMirrorId);
 
 // Mirror routes — active user polling, Gmail status, Gmail messages
 app.use("/api/mirrors", mirrorsRoutes);
-
-// AI assistant settings (household-scoped, authenticated)
-app.use("/api/ai-settings", aiSettingsRoutes);
 
 // FCM device token registration (authenticated)
 app.use("/api/devices", devicesRoutes);

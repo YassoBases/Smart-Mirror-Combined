@@ -41,6 +41,7 @@ export const ProfileProvider = ({ children }) => {
   const [lastSynced, setLastSynced]       = useState(null);
   const prevProfileIdRef                  = useRef(null);
   const prevSettingsHashRef               = useRef(null);
+  const prevAiSettingsHashRef             = useRef(null);
 
   // Resolve the real mirror public key from the sync bridge.
   // Retries every 2 s until the bridge is online and returns the key,
@@ -79,23 +80,26 @@ export const ProfileProvider = ({ children }) => {
 
       // Detect what changed
       const settingsHash    = JSON.stringify(profile.settings);
-      const settingsChanged = settingsHash !== prevSettingsHashRef.current;
-      const profileChanged  = profile.profileId !== prevProfileIdRef.current;
+      const aiSettingsHash  = JSON.stringify(profile.aiSettings);
+      const settingsChanged   = settingsHash   !== prevSettingsHashRef.current;
+      const aiSettingsChanged = aiSettingsHash !== prevAiSettingsHashRef.current;
+      const profileChanged    = profile.profileId !== prevProfileIdRef.current;
 
-      // Skip re-render when neither profile nor settings changed
-      if (!profileChanged && !settingsChanged && lastSynced !== null) {
+      // Skip re-render when nothing changed
+      if (!profileChanged && !settingsChanged && !aiSettingsChanged && lastSynced !== null) {
         console.log('[ProfileContext] Profile unchanged (id:', profile.profileId, ') — skip.');
         return;
       }
 
-      prevProfileIdRef.current    = profile.profileId;
-      prevSettingsHashRef.current = settingsHash;
+      prevProfileIdRef.current       = profile.profileId;
+      prevSettingsHashRef.current    = settingsHash;
+      prevAiSettingsHashRef.current  = aiSettingsHash;
 
       // Apply backend settings to localStorage so mirror widgets re-evaluate.
       // Also force-apply on every profile switch so a new profile's widget set
       // immediately replaces the previous profile's localStorage state.
-      if (settingsChanged || profileChanged) {
-        applyBackendSettings({ widgets: profile.settings });
+      if (settingsChanged || aiSettingsChanged || profileChanged) {
+        applyBackendSettings({ widgets: profile.settings, ai: profile.aiSettings });
       }
 
       setActiveProfile(profile);

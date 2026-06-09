@@ -47,20 +47,6 @@ router.post('/pair/code', authenticate, async (req, res, next) => {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-// Resolve mirrorId → AI settings stored by the household that owns this mirror.
-async function getAiSettingsForMirror(mirrorId) {
-  const db = await getDb();
-  const row = await db.get(
-    `SELECT mas.settings
-     FROM mirror_ai_settings mas
-     JOIN accounts a ON a.household_id = mas.household_id
-     JOIN mirrors  m ON m.account_id   = a.id
-     WHERE m.mirror_id = ?`,
-    mirrorId
-  );
-  return row ? JSON.parse(row.settings) : null;
-}
-
 // Resolve mirrorId → profile row (with gmail_connected flag).
 // Checks active_mirror_users first (explicit selection on mirror),
 // then falls back to profiles.mirror_id (app-side pairing).
@@ -69,7 +55,7 @@ async function getActiveProfile(mirrorId) {
   const db = await getDb();
 
   const SELECT = `
-    SELECT p.id, p.name, p.email, p.google_sub, p.mirror_id, p.widgets_config,
+    SELECT p.id, p.name, p.email, p.google_sub, p.mirror_id, p.widgets_config, p.ai_settings,
            CASE WHEN gc.profile_id  IS NOT NULL THEN 1 ELSE 0 END AS gmail_connected,
            CASE WHEN sc.profile_id  IS NOT NULL THEN 1 ELSE 0 END AS spotify_connected,
            sc.display_name AS spotify_display_name
@@ -123,7 +109,7 @@ router.post('/active-user', async (req, res, next) => {
 
     const active = await getActiveProfile(mirrorId);
     const widgetSettings = active.widgets_config ? JSON.parse(active.widgets_config) : undefined;
-    const aiSettings = await getAiSettingsForMirror(mirrorId);
+    const aiSettings = active.ai_settings ? JSON.parse(active.ai_settings) : null;
     res.json({
       profile: {
         id: active.id,
@@ -152,7 +138,7 @@ router.get('/active-user', async (req, res, next) => {
     const profile = await getActiveProfile(mirrorId);
     if (!profile) return res.json({ profile: null });
     const widgetSettings = profile.widgets_config ? JSON.parse(profile.widgets_config) : undefined;
-    const aiSettings = await getAiSettingsForMirror(mirrorId);
+    const aiSettings = profile.ai_settings ? JSON.parse(profile.ai_settings) : null;
     res.json({
       profile: {
         id: profile.id,

@@ -101,6 +101,24 @@ async function updateWidgets(profileId, widgetsConfig) {
   return getProfile(profileId); // Return the updated profile
 }
 
+async function getAiSettings(profileId) {
+  const profile = await getProfile(profileId);
+  return profile.ai_settings ? JSON.parse(profile.ai_settings) : {};
+}
+
+async function updateAiSettings(profileId, settings) {
+  const db = await getDb();
+  const profile = await getProfile(profileId);
+  const current = profile.ai_settings ? JSON.parse(profile.ai_settings) : {};
+  const merged = { ...current, ...settings };
+  await db.run(
+    "UPDATE profiles SET ai_settings = ? WHERE id = ?",
+    JSON.stringify(merged),
+    profileId,
+  );
+  return getProfile(profileId);
+}
+
 module.exports = {
   createProfile,
   listProfiles,
@@ -109,4 +127,6 @@ module.exports = {
   getProfilesByMirrorId,
   deleteProfile,
   updateWidgets,
+  getAiSettings,
+  updateAiSettings,
 };

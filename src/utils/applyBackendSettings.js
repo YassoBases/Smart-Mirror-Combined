@@ -96,6 +96,28 @@ export function applyBackendSettings(settings) {
     if (gp.cameraPosition)  stored.handtracking.settings.cameraPosition = gp.cameraPosition;
   }
 
+  // ── AI assistant settings (settings.ai — per-profile block) ─────────────────
+  // null/absent means the active profile has no key → assistant disabled.
+  // The existing `if (!apiKey)` guards in useAIAssistant handle the disable path.
+  const ai = settings.ai;
+  if (ai !== undefined) {
+    stored.aiAssistant = {
+      enabled:         ai ? (ai.enabled ?? false) : false,
+      settingsVersion: 2,
+      settings: {
+        ...(stored.aiAssistant?.settings || {}),
+        name:               ai?.name               || 'Mirror',
+        apiKey:             ai?.apiKey             || '',
+        chatModel:          ai?.chatModel          || 'gpt-4o',
+        realtimeModel:      ai?.realtimeModel      || 'gpt-4o-realtime-preview-2024-12-17',
+        voice:              ai?.voice              || 'alloy',
+        elevenLabsKey:      ai?.elevenLabsKey      || '',
+        elevenLabsVoiceId:  ai?.elevenLabsVoiceId  || '',
+        showRawTranscripts: ai?.showRawTranscripts ?? false,
+      },
+    };
+  }
+
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
   // Fire storage event so SmartMirror re-evaluates widget visibility
   window.dispatchEvent(new Event('storage'));
