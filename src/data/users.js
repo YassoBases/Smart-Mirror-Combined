@@ -168,9 +168,11 @@ export const removeFaceDescriptor = (userId) => {
  * Finds the best-matching user for a given descriptor using Euclidean distance.
  * Handles both single-descriptor (legacy number[]) and multi-descriptor (number[][]) storage.
  * Returns { user, distance } or null if no stored descriptors are below threshold.
- * Default threshold of 0.55 works well for face-api.js faceRecognitionNet.
+ * Default threshold of 0.6 is face-api.js's documented good-match cutoff — strict
+ * enough to reject strangers (typically > 0.65) while still recognising the owner
+ * across lighting/pose variation (often 0.55–0.6).
  */
-export const findUserByFace = (descriptor, threshold = 0.55) => {
+export const findUserByFace = (descriptor, threshold = 0.6) => {
   const stored = getFaceDescriptors();
   const { profiles } = getUsers();
   let bestUser = null;

@@ -86,7 +86,7 @@ const DEFAULT_SETTINGS = {
   widgetBorders: false,
   widgetShadows: false,
   widgetHoverHighlight: false,
-  faceRecognitionEnabled: false,
+  faceRecognitionEnabled: true,
   mirrorTimeoutEnabled: false,
   mirrorTimeoutMinutes: 5,
   gestureEnabled: true
@@ -159,6 +159,20 @@ export const saveGeneralSettings = (partialSettings, options = {}) => {
     }
   }
   return sanitizedSettings.general;
+};
+
+// One-time migration: face recognition originally shipped disabled with no UI to
+// enable it, so every existing install has `faceRecognitionEnabled: false` baked
+// into localStorage — which silently kills the whole recognition + security-alert
+// pipeline. Flip it on exactly once (tracked by the faceRecognitionMigrated marker);
+// after that the Settings toggle is respected and we never force it again.
+export const migrateGeneralSettingsIfNeeded = () => {
+  const settings = ensureGeneral(readSettings());
+  if (settings.general.faceRecognitionMigrated !== true) {
+    settings.general.faceRecognitionEnabled = true;
+    settings.general.faceRecognitionMigrated = true;
+    writeSettings(settings);
+  }
 };
 
 export const getAccentOption = (id) => {

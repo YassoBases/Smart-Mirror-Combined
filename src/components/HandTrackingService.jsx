@@ -68,6 +68,7 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
   const faceIntervalRef = useRef(null);
   const onFaceDetectedRef = useRef(onFaceDetected);
   const lastFaceBoxRef = useRef(null);
+  const snapshotCanvasRef = useRef(null);
   const canvasCtxRef  = useRef(null);
   const canvasWRef    = useRef(0);
   const canvasHRef    = useRef(0);
@@ -123,7 +124,23 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
 
           if (detection) {
             lastFaceBoxRef.current = detection.detection.box;
-            cb({ descriptor: Array.from(detection.descriptor), box: detection.detection.box });
+            // Lazy snapshot — only encoded if the consumer actually invokes it
+            // (i.e. when reporting an unknown face), so recognized frames stay
+            // cheap on the Pi. Returns a base64 JPEG (no data: prefix) the backend
+            // can write straight to disk, or null on failure.
+            const captureSnapshot = () => {
+              try {
+                const vid = videoRef.current;
+                if (!vid || !vid.videoWidth) return null;
+                const scale = Math.min(1, 320 / vid.videoWidth);
+                const sc = snapshotCanvasRef.current || (snapshotCanvasRef.current = document.createElement('canvas'));
+                sc.width = Math.round(vid.videoWidth * scale);
+                sc.height = Math.round(vid.videoHeight * scale);
+                sc.getContext('2d').drawImage(vid, 0, 0, sc.width, sc.height);
+                return sc.toDataURL('image/jpeg', 0.7).split(',')[1] || null;
+              } catch { return null; }
+            };
+            cb({ descriptor: Array.from(detection.descriptor), box: detection.detection.box, captureSnapshot });
           } else {
             lastFaceBoxRef.current = null;
             cb(null);

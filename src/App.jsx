@@ -8,6 +8,7 @@ import PhonePair from './pages/PhonePair';
 import Alerts from './pages/Alerts';
 import PairingScreen from './components/PairingScreen';
 import WelcomeScreen from './components/WelcomeScreen';
+import VirtualKeyboard from './components/VirtualKeyboard';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { GuestModeProvider } from './contexts/GuestModeContext';
@@ -27,6 +28,9 @@ function AppShell() {
       }}
     >
       <div className="App">
+        {/* Global on-screen keyboard — appears whenever a text field is focused,
+            on every screen (pairing, mirror, settings). Typed via pinch-click. */}
+        <VirtualKeyboard />
         {introPhase === 'pairing' && (
           <PairingScreen onComplete={handlePairingComplete} />
         )}

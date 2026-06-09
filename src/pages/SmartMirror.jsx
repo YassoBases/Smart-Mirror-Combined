@@ -116,7 +116,12 @@ const SmartMirror = () => {
   const lockedFaceUserRef = useRef(null);
   // Throttle: epoch ms of last unknown-face alert sent (null = never)
   const lastUnknownAlertRef = useRef(null);
-  const UNKNOWN_ALERT_COOLDOWN_MS = 45 * 1000; // 45 seconds
+  const UNKNOWN_ALERT_COOLDOWN_MS = 3 * 60 * 1000; // 3 min between unknown-face push alerts
+  // Require several consecutive unknown detections before flagging, so a single
+  // borderline frame (e.g. the owner scoring just over the match threshold) does
+  // not blast a phone notification.
+  const consecutiveUnknownCountRef = useRef(0);
+  const UNKNOWN_CONFIRM_COUNT = 3; // ~4.5 s of continuous unknown at the 1.5 s sample interval
   // Tracks how many consecutive null-detection frames before we consider the face "gone"
   const faceMissCountRef = useRef(0);
   const FACE_MISS_THRESHOLD = 4; // ~6 seconds at 1.5s interval before considering face left
@@ -409,17 +414,19 @@ const SmartMirror = () => {
         setFaceStatus('scanning');
         consecutiveMatchCountRef.current = 0;
         lastMatchedUserIdRef.current = null;
+        consecutiveUnknownCountRef.current = 0;
       }
       return;
     }
 
     faceMissCountRef.current = 0;
-    const { descriptor } = faceResult;
+    const { descriptor, captureSnapshot } = faceResult;
     const match = findUserByFace(descriptor);
 
     if (match) {
       const { user } = match;
       if (!user) return;
+      consecutiveUnknownCountRef.current = 0; // a real match clears any unknown streak
 
       // Consecutive-match confirmation: require 2 detections before switching
       if (lastMatchedUserIdRef.current === user.id) {
@@ -463,6 +470,13 @@ const SmartMirror = () => {
         setActiveUser(unregistered.id);
         setFaceStatus('recognized');
       } else {
+        // Need several consecutive unknown frames before we trust it and alert.
+        consecutiveUnknownCountRef.current += 1;
+        if (consecutiveUnknownCountRef.current < UNKNOWN_CONFIRM_COUNT) {
+          setFaceStatus('scanning'); // still unsure — keep scanning before flagging
+          return;
+        }
+
         if (lockedFaceUserRef.current?.id !== 'unknown') {
           lockedFaceUserRef.current = { id: 'unknown', name: 'Unknown' };
           setLockedFaceUser({ id: 'unknown', name: 'Unknown' });
@@ -474,7 +488,8 @@ const SmartMirror = () => {
             const mirrorId = backendApi.getMirrorId();
             if (mirrorId) {
               const confidence = findBestFaceDistance(descriptor);
-              backendApi.reportUnknownFace(mirrorId, { confidence });
+              const imageData = typeof captureSnapshot === 'function' ? captureSnapshot() : null;
+              backendApi.reportUnknownFace(mirrorId, { confidence, imageData });
             }
           }
         }
@@ -754,6 +769,11 @@ const SmartMirror = () => {
           const tag = el?.tagName?.toLowerCase();
           if (el && tag !== 'video' && tag !== 'canvas') {
             const target = findClickTarget(el);
+            // Focus text fields so the on-screen VirtualKeyboard appears.
+            const ttag = target?.tagName?.toLowerCase();
+            if (ttag === 'input' || ttag === 'textarea' || ttag === 'select') {
+              try { target.focus({ preventScroll: true }); } catch (_) { /* ignore */ }
+            }
             try { target.click(); } catch (_) { /* ignore restricted elements */ }
           }
         }
@@ -1002,7 +1022,7 @@ const SmartMirror = () => {
       {/* Settings Button */}
       <Link
         to="/settings"
-        className="fixed bottom-6 right-6 z-[1000] rounded-full p-3 hover:opacity-80"
+        className="fixed bottom-6 right-6 z-[1000] rounded-full p-5 hover:opacity-80"
         style={{
           border: '1px solid rgba(255,255,255,0.08)',
           background: 'rgba(0,0,0,0.7)',
@@ -1010,7 +1030,7 @@ const SmartMirror = () => {
           boxShadow: generalSettings.widgetShadows ? '0 12px 30px var(--mirror-accent-soft)' : 'none'
         }}
       >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-9 h-9" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
