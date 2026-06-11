@@ -42,6 +42,7 @@ export const ProfileProvider = ({ children }) => {
   const prevProfileIdRef                  = useRef(null);
   const prevSettingsHashRef               = useRef(null);
   const prevAiSettingsHashRef             = useRef(null);
+  const hasSyncedRef                      = useRef(false);
 
   // Resolve the real mirror public key from the sync bridge.
   // Retries every 2 s until the bridge is online and returns the key,
@@ -86,7 +87,7 @@ export const ProfileProvider = ({ children }) => {
       const profileChanged    = profile.profileId !== prevProfileIdRef.current;
 
       // Skip re-render when nothing changed
-      if (!profileChanged && !settingsChanged && !aiSettingsChanged && lastSynced !== null) {
+      if (!profileChanged && !settingsChanged && !aiSettingsChanged && hasSyncedRef.current) {
         console.log('[ProfileContext] Profile unchanged (id:', profile.profileId, ') — skip.');
         return;
       }
@@ -104,6 +105,7 @@ export const ProfileProvider = ({ children }) => {
 
       setActiveProfile(profile);
       setLastSynced(Date.now());
+      hasSyncedRef.current = true;
       setIsLoading(false);
 
       console.log('[ProfileContext] Widget render decisions:', {
