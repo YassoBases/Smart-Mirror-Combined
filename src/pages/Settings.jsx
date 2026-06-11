@@ -1202,29 +1202,33 @@ const Settings = () => {
                 </div>
               )}
 
-              {/* Sign Out + Delete — only when an account is active */}
-              {backendActiveId !== null && (() => {
+              {/* Sign Out + Delete — visible when profiles exist, disabled when none is active */}
+              {backendProfiles.length > 0 && (() => {
                 const activeName = backendProfiles.find(p => p.id === backendActiveId)?.name || 'User';
+                const noActive = backendActiveId === null;
                 return (
                   <div className="flex flex-wrap gap-3 pt-3 border-t border-white/[0.06]">
                     <button
                       type="button"
-                      disabled={isSigningOut}
+                      disabled={noActive || isSigningOut}
                       onClick={handleSignOut}
-                      className="flex items-center gap-2 rounded-lg px-4 py-2 text-xs text-white/50 transition-all duration-150 hover:text-white/80 disabled:opacity-40"
+                      className="flex items-center gap-2 rounded-lg px-4 py-2 text-xs text-white/50 transition-all duration-150 hover:text-white/80 disabled:opacity-30 disabled:cursor-not-allowed"
                       style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+                      title={noActive ? 'Select an account first' : undefined}
                     >
                       <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M10 2h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-3M6.5 11 3 8l3.5-3M3 8h8" />
                       </svg>
-                      {isSigningOut ? 'Signing out…' : `Sign out (${activeName})`}
+                      {isSigningOut ? 'Signing out…' : noActive ? 'Sign out' : `Sign out (${activeName})`}
                     </button>
 
                     <button
                       type="button"
+                      disabled={noActive}
                       onClick={() => setShowDeleteConfirm(true)}
-                      className="flex items-center gap-2 rounded-lg px-4 py-2 text-xs text-red-400/70 transition-all duration-150 hover:text-red-400"
+                      className="flex items-center gap-2 rounded-lg px-4 py-2 text-xs text-red-400/70 transition-all duration-150 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
                       style={{ border: '1px solid rgba(239,68,68,0.2)' }}
+                      title={noActive ? 'Select an account first' : undefined}
                     >
                       <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 9a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-9" />
