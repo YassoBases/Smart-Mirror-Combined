@@ -18,19 +18,19 @@ export const NEWS_SOURCES = {
     name: 'Al Jazeera',
     url: 'https://www.aljazeera.com/xml/rss/all.xml'
   },
-  trt: {
-    id: 'trt',
-    name: 'TRT World',
-    url: 'https://www.trtworld.com/rss'
+  dw: {
+    id: 'dw',
+    name: 'DW World',
+    url: 'https://rss.dw.com/xml/rss-en-world'
   },
-  turkishminute: {
-    id: 'turkishminute',
-    name: 'Turkish Minute',
-    url: 'https://www.turkishminute.com/feed/'
+  reuters: {
+    id: 'reuters',
+    name: 'Reuters',
+    url: 'https://feeds.reuters.com/reuters/topNews'
   }
 };
 
-export const DEFAULT_SOURCES = ['bbc', 'trt'];
+export const DEFAULT_SOURCES = ['bbc', 'aljazeera'];
 
 // ── RSS fetch helpers ──────────────────────────────────────────────────────
 

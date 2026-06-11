@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useGuestMode } from '../contexts/GuestModeContext';
 import MirrorIdQRCode from '../components/MirrorIdQRCode';
 import GestureControl from '../components/GestureControl';
 import { apps, saveAppSettings, toggleAppEnabled } from '../data/apps';
@@ -49,6 +50,7 @@ const VOICE_OPTIONS = [
 ];
 
 const Settings = () => {
+  const { guestMode, exitGuest } = useGuestMode();
   const [settings, setSettings] = useState({});
   const [selectedApp, setSelectedApp] = useState(null);
   const [generalSettings, setGeneralSettings] = useState(() => getGeneralSettings());
@@ -325,10 +327,10 @@ const Settings = () => {
 
       case 'news': {
         const NEWS_CHANNELS = [
-          { id: 'bbc',           label: 'BBC',            desc: 'BBC World News' },
-          { id: 'aljazeera',     label: 'Al Jazeera',     desc: 'Al Jazeera English' },
-          { id: 'trt',           label: 'TRT World',      desc: 'TRT World News' },
-          { id: 'turkishminute', label: 'Turkish Minute', desc: 'Independent Turkish news' }
+          { id: 'bbc',       label: 'BBC',        desc: 'BBC World News' },
+          { id: 'aljazeera', label: 'Al Jazeera', desc: 'Al Jazeera English' },
+          { id: 'dw',        label: 'DW World',   desc: 'Deutsche Welle international' },
+          { id: 'reuters',   label: 'Reuters',    desc: 'Reuters world news' }
         ];
         const activeSources = getAppSetting('news', 'sources', ['bbc', 'trt']);
         const toggleSource = (id) => {
@@ -1036,6 +1038,63 @@ const Settings = () => {
         {/* ── Users section ─────────────────────────────────────────────────── */}
         <div className="mb-10">
           <div className="rounded-2xl p-6" style={{ border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.025)' }}>
+
+            {/* ── Current session status ──────────────────────────────────────── */}
+            {guestMode ? (
+              <div className="mb-6 flex items-center justify-between gap-4 rounded-xl px-4 py-3"
+                style={{ border: '1px solid rgba(251,191,36,0.2)', background: 'rgba(251,191,36,0.05)' }}>
+                <div className="flex items-center gap-3">
+                  <svg className="w-4 h-4 text-amber-400/70 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                  </svg>
+                  <div>
+                    <p className="text-xs font-medium text-amber-400/80">Guest mode</p>
+                    <p className="text-[10px] text-white/30">No account linked — limited to local widgets</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Link
+                    to="/pairing"
+                    className="rounded-lg px-3 py-1.5 text-xs text-white/60 transition-all hover:text-white/90"
+                    style={{ border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.04)' }}
+                  >
+                    Sign in
+                  </Link>
+                  <button
+                    onClick={exitGuest}
+                    className="rounded-lg px-3 py-1.5 text-xs text-amber-400/70 transition-all hover:text-amber-300/90"
+                    style={{ border: '1px solid rgba(251,191,36,0.2)' }}
+                  >
+                    Exit guest
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mb-6 flex items-center justify-between gap-4 rounded-xl px-4 py-3"
+                style={{ border: '1px solid rgba(52,211,153,0.15)', background: 'rgba(52,211,153,0.04)' }}>
+                <div className="flex items-center gap-3">
+                  <svg className="w-4 h-4 text-emerald-400/70 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-xs font-medium text-emerald-400/70">
+                      {backendActiveId !== null
+                        ? `Signed in as ${backendProfiles.find(p => p.id === backendActiveId)?.name || 'user'}`
+                        : 'Mirror linked'}
+                    </p>
+                    <p className="text-[10px] text-white/30">Account connected via mobile app</p>
+                  </div>
+                </div>
+                <Link
+                  to="/pairing"
+                  className="rounded-lg px-3 py-1.5 text-xs text-white/40 transition-all hover:text-white/70 flex-shrink-0"
+                  style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+                >
+                  Pairing
+                </Link>
+              </div>
+            )}
+
             <div className="mb-6">
               <p className="text-[9px] uppercase tracking-[0.28em] text-white/25 mb-1">Identity</p>
               <h2
@@ -1515,26 +1574,43 @@ const Settings = () => {
         {/* Device pairing section */}
         <div className="mt-8 rounded-2xl p-6" style={{ border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}>
           <p className="text-[9px] uppercase tracking-[0.28em] text-white/25 mb-1">Device</p>
-          <p className="text-sm text-white/55 mb-1">Account &amp; pairing</p>
+          <p className="text-sm text-white/55 mb-1">Pairing &amp; account</p>
           <p className="mb-4 text-xs text-white/28">
-            Scan the QR code with the mobile app to link a profile to this mirror.
+            {guestMode
+              ? 'Open the pairing screen to sign in with the mobile app and link an account.'
+              : 'View pairing QR, check link status, or unlink this mirror from its current account.'}
           </p>
-          <Link
-            to="/pairing"
-            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs text-white/50 transition-all duration-150 hover:text-white/80"
-            style={{ border: '1px solid rgba(255,255,255,0.1)' }}
-          >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="1" y="1" width="5" height="5" rx="0.5"/>
-              <rect x="10" y="1" width="5" height="5" rx="0.5"/>
-              <rect x="1" y="10" width="5" height="5" rx="0.5"/>
-              <rect x="2.5" y="2.5" width="2" height="2" fill="currentColor" stroke="none"/>
-              <rect x="11.5" y="2.5" width="2" height="2" fill="currentColor" stroke="none"/>
-              <rect x="2.5" y="11.5" width="2" height="2" fill="currentColor" stroke="none"/>
-              <path d="M10 10h2v2h-2zM12 12h3M12 10h3v2"/>
-            </svg>
-            Show pairing QR
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/pairing"
+              className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs transition-all duration-150"
+              style={{
+                border: guestMode ? '1px solid rgba(56,189,248,0.35)' : '1px solid rgba(255,255,255,0.1)',
+                color: guestMode ? 'rgba(56,189,248,0.85)' : 'rgba(255,255,255,0.5)',
+                background: guestMode ? 'rgba(56,189,248,0.06)' : 'transparent',
+              }}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="1" y="1" width="5" height="5" rx="0.5"/>
+                <rect x="10" y="1" width="5" height="5" rx="0.5"/>
+                <rect x="1" y="10" width="5" height="5" rx="0.5"/>
+                <rect x="2.5" y="2.5" width="2" height="2" fill="currentColor" stroke="none"/>
+                <rect x="11.5" y="2.5" width="2" height="2" fill="currentColor" stroke="none"/>
+                <rect x="2.5" y="11.5" width="2" height="2" fill="currentColor" stroke="none"/>
+                <path d="M10 10h2v2h-2zM12 12h3M12 10h3v2"/>
+              </svg>
+              {guestMode ? 'Sign in / Pair device' : 'Open pairing screen'}
+            </Link>
+            {guestMode && (
+              <button
+                onClick={exitGuest}
+                className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs text-amber-400/70 transition-all duration-150 hover:text-amber-300/90"
+                style={{ border: '1px solid rgba(251,191,36,0.2)' }}
+              >
+                Exit guest mode
+              </button>
+            )}
+          </div>
         </div>
 
       </div>

@@ -30,10 +30,7 @@ export default function AIAssistantOverlay({ assistant }) {
   const inputRef    = useRef(null);
   const historyRef  = useRef(null);
 
-  // Auto-focus input when overlay opens
-  useEffect(() => {
-    if (isOpen) setTimeout(() => inputRef.current?.focus(), 150);
-  }, [isOpen]);
+  // Do not auto-focus — avoids popping up the virtual keyboard on the mirror
 
   // Scroll history to bottom when new messages arrive
   useEffect(() => {
@@ -158,6 +155,7 @@ export default function AIAssistantOverlay({ assistant }) {
           value={input}
           onChange={e => setInput(e.target.value)}
           placeholder="Type a message…"
+          inputMode="none"
           className="flex-1 bg-white/10 border border-white/15 rounded-full px-4 py-2.5 text-sm text-white placeholder-white/35 outline-none focus:border-white/40 focus:bg-white/14 transition"
         />
         <button
