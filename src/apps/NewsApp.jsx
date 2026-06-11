@@ -34,10 +34,15 @@ export const DEFAULT_SOURCES = ['bbc', 'trt'];
 
 // ── RSS fetch helpers ──────────────────────────────────────────────────────
 
-// CORS proxies — tried in order until one works
+// Backend RSS proxy (most reliable — no rate limits, no CORS)
+const backendProxyUrl = url =>
+  `http://${window.location.hostname}:3000/api/news/rss?url=${encodeURIComponent(url)}`;
+
+// CORS proxies — fallbacks if the backend is unreachable
 const PROXIES = [
-  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  backendProxyUrl,
   url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
   url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
 ];
 

@@ -1,0 +1,47 @@
+# smartmirror-wifi-connect.service
+#
+# Systemd unit that runs wifi-guard.sh at boot — broadcasts a WPA2 setup
+# hotspot (SmartMirror-Setup) when the Pi has no saved WiFi credentials,
+# blocks until the customer provides them via the captive portal, then exits.
+# Does nothing on subsequent boots once the Pi is already connected.
+#
+# INSTALL (run on the Pi):
+#   sudo cp /home/pi/Smart-Mirror-Combined/provisioning/smartmirror-wifi-connect.service \
+#            /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable smartmirror-wifi-connect.service
+#
+# To override SSID / passphrase without editing the script, create:
+#   /etc/smartmirror/wifi-guard.env
+# containing lines like:
+#   PORTAL_SSID=MyMirror-Setup
+#   PORTAL_PASSPHRASE=MySecret1
+#
+# Adjust the ExecStart path if the repo is cloned to a different location.
+
+[Unit]
+Description=Smart Mirror WiFi onboarding (wifi-connect when offline at boot)
+After=NetworkManager.service
+# Ensure this completes before the mirror's own service starts.
+# Replace 'smartmirror.service' with your actual mirror service name if different.
+# Before=smartmirror.service
+Wants=NetworkManager.service
+ConditionPathExists=/usr/local/bin/wifi-connect
+
+[Service]
+Type=simple
+# Load optional overrides for PORTAL_SSID / PORTAL_PASSPHRASE
+EnvironmentFile=-/etc/smartmirror/wifi-guard.env
+ExecStart=/home/pi/Smart-Mirror-Combined/provisioning/wifi-guard.sh
+# Re-open the portal on unexpected exit (e.g. wifi-connect crash).
+# Wrong password: wifi-connect re-prompts internally, so this is for crashes only.
+Restart=on-failure
+RestartSec=5s
+# wifi-connect blocks indefinitely waiting for the customer — no start timeout.
+TimeoutStartSec=infinity
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=smartmirror-wifi
+
+[Install]
+WantedBy=multi-user.target

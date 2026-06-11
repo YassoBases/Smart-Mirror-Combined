@@ -9,7 +9,7 @@ import GestureControl from './GestureControl';
 
 // ─── Main pairing / login screen ─────────────────────────────────────────────
 
-export default function PairingScreen({ onComplete }) {
+export default function PairingScreen({ onComplete, autoAdvance = true }) {
   const { phase, qrData, shortCode, qrExpiring, bridgeOnline, mirrorIp, factoryReset } = useMirrorSync();
   const { enterGuest } = useGuestMode();
 
@@ -19,11 +19,12 @@ export default function PairingScreen({ onComplete }) {
   }, [phase, onComplete]);
 
   // Advance after a short delay if the sync bridge is unreachable
+  // (skip when accessed as a dedicated /pairing route — user stays until they leave manually)
   useEffect(() => {
-    if (phase !== 'bridge_unavailable') return;
+    if (!autoAdvance || phase !== 'bridge_unavailable') return;
     const t = setTimeout(() => onComplete?.(), 1500);
     return () => clearTimeout(t);
-  }, [phase, onComplete]);
+  }, [autoAdvance, phase, onComplete]);
 
   const handleEnterGuest = () => {
     enterGuest();
@@ -212,6 +213,15 @@ export default function PairingScreen({ onComplete }) {
       >
         Reset device
       </button>
+
+      {!autoAdvance && (
+        <button
+          onClick={() => onComplete?.()}
+          className="relative mt-4 text-[10px] uppercase tracking-[0.2em] text-white/25 transition-colors hover:text-white/55 border border-white/10 rounded-full px-5 py-1.5"
+        >
+          ← Back to mirror
+        </button>
+      )}
     </div>
   );
 }

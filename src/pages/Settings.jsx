@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { DeviceAccountButton } from '../components/PairingScreen';
+import { Link, useNavigate } from 'react-router-dom';
 import MirrorIdQRCode from '../components/MirrorIdQRCode';
 import GestureControl from '../components/GestureControl';
 import { apps, saveAppSettings, toggleAppEnabled } from '../data/apps';
@@ -60,6 +59,9 @@ const Settings = () => {
   const [mirrorIdCopied, setMirrorIdCopied] = useState(false);
   const [backendProfiles, setBackendProfiles] = useState([]);
   const [backendActiveId, setBackendActiveId] = useState(null);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   const assistantSettings = aiAssistantSettings.settings || {};
   const selectedAccent = getAccentOption(generalSettings.accent);
@@ -169,6 +171,27 @@ const Settings = () => {
     const mirrorId = backendApi.getMirrorId();
     await backendApi.setActiveMirrorUser(mirrorId, profileId);
     setBackendActiveId(profileId);
+  };
+
+  const handleSignOut = async () => {
+    setIsSigningOut(true);
+    try {
+      await backendApi.signOutFromMirror(backendApi.getMirrorId());
+      setBackendActiveId(null);
+    } catch (_) {}
+    setIsSigningOut(false);
+  };
+
+  const handleDeleteAccount = async () => {
+    setIsDeletingAccount(true);
+    try {
+      await backendApi.deleteActiveProfile(backendApi.getMirrorId());
+      const deletedId = backendActiveId;
+      setBackendProfiles(prev => prev.filter(p => p.id !== deletedId));
+      setBackendActiveId(null);
+    } catch (_) {}
+    setIsDeletingAccount(false);
+    setShowDeleteConfirm(false);
   };
 
   const handleCopyMirrorId = () => {
@@ -1057,11 +1080,86 @@ const Settings = () => {
               </div>
             </div>
 
-            {/* Profiles received from mobile app */}
-            {backendProfiles.length > 0 ? (
-              <div>
-                <p className="text-[9px] uppercase tracking-[0.28em] text-white/25 mb-3">Active on Mirror</p>
-                <div className="flex flex-wrap gap-3">
+            {/* ── Account switcher — always visible ─────────────────────────── */}
+            <div className="space-y-3">
+              <p className="text-[9px] uppercase tracking-[0.28em] text-white/25">Switch Account</p>
+
+              {/* Dropdown — disabled when no accounts are linked */}
+              <div className="relative">
+                {/* Avatar bubble inside the select when an account is active */}
+                {backendActiveId !== null && (() => {
+                  const active = backendProfiles.find(p => p.id === backendActiveId);
+                  if (!active) return null;
+                  return (
+                    <div
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold z-10"
+                      style={{ backgroundColor: 'var(--mirror-accent-color,#38bdf8)', color: '#000' }}
+                    >
+                      {active.name.charAt(0).toUpperCase()}
+                    </div>
+                  );
+                })()}
+
+                <select
+                  value={backendActiveId ?? ''}
+                  disabled={backendProfiles.length === 0}
+                  onChange={(e) => {
+                    const id = Number(e.target.value);
+                    if (id) handleSwitchUser(id);
+                  }}
+                  className="w-full rounded-xl py-3 pr-10 text-sm appearance-none transition-all duration-150 focus:outline-none"
+                  style={{
+                    paddingLeft: backendActiveId !== null ? '2.75rem' : '1rem',
+                    border: backendProfiles.length === 0
+                      ? '1px solid rgba(255,255,255,0.07)'
+                      : '1px solid rgba(var(--mirror-accent-rgb,56,189,248),0.35)',
+                    background: backendProfiles.length === 0
+                      ? 'rgba(255,255,255,0.02)'
+                      : 'rgba(var(--mirror-accent-rgb,56,189,248),0.06)',
+                    color: backendProfiles.length === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.75)',
+                    cursor: backendProfiles.length === 0 ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {backendProfiles.length === 0 ? (
+                    <option value="" style={{ background: '#111', color: 'rgba(255,255,255,0.3)' }}>
+                      No accounts linked yet
+                    </option>
+                  ) : (
+                    <>
+                      {backendActiveId === null && (
+                        <option value="" disabled style={{ background: '#111' }}>
+                          — select an account —
+                        </option>
+                      )}
+                      {backendProfiles.map(profile => (
+                        <option key={profile.id} value={profile.id} style={{ background: '#111', color: '#fff' }}>
+                          {profile.name}{profile.gmail_connected && profile.email ? ` · ${profile.email}` : ''}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+
+                {/* Chevron icon */}
+                <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2"
+                  style={{ color: backendProfiles.length === 0 ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.35)' }}>
+                  <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 6l4 4 4-4"/>
+                  </svg>
+                </div>
+              </div>
+
+              {/* Empty-state hint */}
+              {backendProfiles.length === 0 && (
+                <p className="text-xs text-white/25 italic">
+                  Open the mobile app → go to a profile → tap "Show on Mirror" to link an account.
+                </p>
+              )}
+
+              {/* Account list — only rendered when 2+ accounts are linked */}
+              {backendProfiles.length > 1 && (
+                <div className="space-y-1 pt-1">
+                  <p className="text-[9px] uppercase tracking-[0.28em] text-white/20 pb-1">All linked accounts</p>
                   {backendProfiles.map(profile => {
                     const isActive = profile.id === backendActiveId;
                     return (
@@ -1069,42 +1167,110 @@ const Settings = () => {
                         key={profile.id}
                         type="button"
                         onClick={() => handleSwitchUser(profile.id)}
-                        className="group flex items-center gap-3 rounded-xl px-4 py-3 transition-all duration-200 text-left min-w-[140px]"
+                        className="group w-full flex items-center gap-3 rounded-lg px-3 py-2.5 transition-all duration-150 text-left"
                         style={{
-                          border: isActive ? '1px solid rgba(var(--mirror-accent-rgb,56,189,248),0.45)' : '1px solid rgba(255,255,255,0.07)',
-                          background: isActive ? 'rgba(var(--mirror-accent-rgb,56,189,248),0.07)' : 'rgba(255,255,255,0.02)'
+                          border: isActive
+                            ? '1px solid rgba(var(--mirror-accent-rgb,56,189,248),0.3)'
+                            : '1px solid rgba(255,255,255,0.06)',
+                          background: isActive
+                            ? 'rgba(var(--mirror-accent-rgb,56,189,248),0.06)'
+                            : 'rgba(255,255,255,0.01)',
                         }}
                       >
                         <div
-                          className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
                           style={{
                             backgroundColor: isActive ? 'var(--mirror-accent-color,#38bdf8)' : 'rgba(255,255,255,0.07)',
-                            color: isActive ? '#000' : 'rgba(255,255,255,0.4)'
+                            color: isActive ? '#000' : 'rgba(255,255,255,0.35)',
                           }}
                         >
                           {profile.name.charAt(0).toUpperCase()}
                         </div>
-                        <div className="min-w-0">
-                          <div className="font-medium text-sm text-white/75 truncate">
-                            {profile.name}
-                          </div>
-                          <div className="text-xs text-white/30 truncate">
-                            {profile.gmail_connected ? profile.email || 'Gmail' : ''}
-                          </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm text-white/70 truncate">{profile.name}</div>
+                          {profile.gmail_connected && profile.email && (
+                            <div className="text-xs text-white/25 truncate">{profile.email}</div>
+                          )}
                         </div>
-                        {isActive && (
-                          <div className="ml-auto w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: 'var(--mirror-accent-color,#38bdf8)' }} />
-                        )}
+                        <span className="text-[9px] uppercase tracking-widest flex-shrink-0"
+                          style={{ color: isActive ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)' }}>
+                          {isActive ? 'active' : 'switch'}
+                        </span>
                       </button>
                     );
                   })}
                 </div>
-              </div>
-            ) : (
-              <p className="text-xs text-white/25 italic">
-                No users linked yet. Open the mobile app, go to a profile, and tap "Show on Mirror".
-              </p>
-            )}
+              )}
+
+              {/* Sign Out + Delete — visible when profiles exist, disabled when none is active */}
+              {backendProfiles.length > 0 && (() => {
+                const activeName = backendProfiles.find(p => p.id === backendActiveId)?.name || 'User';
+                const noActive = backendActiveId === null;
+                return (
+                  <div className="flex flex-wrap gap-3 pt-3 border-t border-white/[0.06]">
+                    <button
+                      type="button"
+                      disabled={noActive || isSigningOut}
+                      onClick={handleSignOut}
+                      className="flex items-center gap-2 rounded-lg px-4 py-2 text-xs text-white/50 transition-all duration-150 hover:text-white/80 disabled:opacity-30 disabled:cursor-not-allowed"
+                      style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+                      title={noActive ? 'Select an account first' : undefined}
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M10 2h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-3M6.5 11 3 8l3.5-3M3 8h8" />
+                      </svg>
+                      {isSigningOut ? 'Signing out…' : noActive ? 'Sign out' : `Sign out (${activeName})`}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={noActive}
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="flex items-center gap-2 rounded-lg px-4 py-2 text-xs text-red-400/70 transition-all duration-150 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                      style={{ border: '1px solid rgba(239,68,68,0.2)' }}
+                      title={noActive ? 'Select an account first' : undefined}
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 9a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-9" />
+                      </svg>
+                      Delete account
+                    </button>
+
+                    {showDeleteConfirm && (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'rgba(0,0,0,0.75)' }}>
+                        <div className="w-full max-w-sm rounded-2xl p-6 space-y-4" style={{ border: '1px solid rgba(239,68,68,0.25)', background: '#0d0d0d' }}>
+                          <div>
+                            <p className="text-sm font-medium text-white/85">Delete account?</p>
+                            <p className="text-xs text-white/40 mt-1">
+                              This will permanently remove <span className="text-white/70 font-medium">{activeName}</span>'s profile, face data, Gmail and Spotify connections. This cannot be undone.
+                            </p>
+                          </div>
+                          <div className="flex gap-3 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setShowDeleteConfirm(false)}
+                              className="flex-1 rounded-lg py-2 text-xs text-white/40 transition-colors hover:text-white/65"
+                              style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isDeletingAccount}
+                              onClick={handleDeleteAccount}
+                              className="flex-1 rounded-lg py-2 text-xs font-medium text-red-300 transition-colors hover:bg-red-900/30 disabled:opacity-40"
+                              style={{ border: '1px solid rgba(239,68,68,0.35)' }}
+                            >
+                              {isDeletingAccount ? 'Deleting…' : 'Delete account'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         </div>
 
@@ -1351,9 +1517,24 @@ const Settings = () => {
           <p className="text-[9px] uppercase tracking-[0.28em] text-white/25 mb-1">Device</p>
           <p className="text-sm text-white/55 mb-1">Account &amp; pairing</p>
           <p className="mb-4 text-xs text-white/28">
-            Unlink this mirror or exit guest mode to return to the pairing screen.
+            Scan the QR code with the mobile app to link a profile to this mirror.
           </p>
-          <DeviceAccountButton />
+          <Link
+            to="/pairing"
+            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs text-white/50 transition-all duration-150 hover:text-white/80"
+            style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="1" y="1" width="5" height="5" rx="0.5"/>
+              <rect x="10" y="1" width="5" height="5" rx="0.5"/>
+              <rect x="1" y="10" width="5" height="5" rx="0.5"/>
+              <rect x="2.5" y="2.5" width="2" height="2" fill="currentColor" stroke="none"/>
+              <rect x="11.5" y="2.5" width="2" height="2" fill="currentColor" stroke="none"/>
+              <rect x="2.5" y="11.5" width="2" height="2" fill="currentColor" stroke="none"/>
+              <path d="M10 10h2v2h-2zM12 12h3M12 10h3v2"/>
+            </svg>
+            Show pairing QR
+          </Link>
         </div>
 
       </div>

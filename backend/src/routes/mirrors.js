@@ -78,6 +78,42 @@ async function getActiveProfile(mirrorId) {
   );
 }
 
+// ── DELETE /api/mirrors/active-user?mid=<mirrorId> ───────────────────────────
+// Clears the active user for this mirror → mirror returns to guest mode.
+// No auth required; mirrorId is the only key needed.
+router.delete('/active-user', async (req, res, next) => {
+  try {
+    const mirrorId = req.query.mid;
+    if (!mirrorId) return res.status(400).json({ error: 'mid is required' });
+    const db = await getDb();
+    await db.run('DELETE FROM active_mirror_users WHERE mirror_id = ?', mirrorId);
+    // Unlink profiles that still point to this mirror so the fallback lookup
+    // doesn't automatically re-activate one of them.
+    await db.run('UPDATE profiles SET mirror_id = NULL WHERE mirror_id = ?', mirrorId);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── DELETE /api/mirrors/active-profile?mid=<mirrorId> ───────────────────────
+// Permanently deletes the active profile (and all its data via cascade).
+// No auth required; authorization is implicit — only someone with the mirrorId
+// can trigger this.
+router.delete('/active-profile', async (req, res, next) => {
+  try {
+    const mirrorId = req.query.mid;
+    if (!mirrorId) return res.status(400).json({ error: 'mid is required' });
+    const db = await getDb();
+    const profile = await getActiveProfile(mirrorId);
+    if (!profile) return res.status(404).json({ error: 'No active profile on this mirror' });
+    await db.run('DELETE FROM profiles WHERE id = ?', profile.id);
+    res.json({ ok: true, deletedProfileId: profile.id });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── POST /api/mirrors/active-user ─────────────────────────────────────────────
 // Body: { mirrorId, profileId }
 // Called by the mirror when a user selects their profile on the mirror itself.

@@ -11,6 +11,7 @@ const spotifyRoutes = require("./routes/spotify");
 const mirrorsRoutes = require("./routes/mirrors");
 const devicesRoutes    = require("./routes/devices");
 const alertsRoutes     = require("./routes/alerts");
+const newsRoutes       = require("./routes/news");
 const { getByMirrorId } = require("./controllers/profileController");
 
 const app = express();
@@ -49,6 +50,9 @@ app.use("/api/devices", devicesRoutes);
 
 // Security alerts — store & fetch unknown-face alerts (authenticated)
 app.use("/api/alerts", alertsRoutes);
+
+// RSS proxy — server-side fetch avoids client CORS issues (no auth, allowlisted hosts)
+app.use("/api/news", newsRoutes);
 
 // Health check — useful for the mirror to verify connectivity
 app.get("/health", (_req, res) => {
