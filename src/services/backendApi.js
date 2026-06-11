@@ -23,6 +23,33 @@ export const backendApi = {
     window.dispatchEvent(new Event('storage'));
   },
 
+  /**
+   * Clears the active user on this mirror so it returns to guest mode.
+   * Removes both the explicit active_mirror_users entry and the profile's
+   * mirror_id pointer so neither lookup path re-activates a profile.
+   */
+  signOutFromMirror: async (mirrorId) => {
+    await fetch(`${API_URL}/api/mirrors/active-user?mid=${encodeURIComponent(mirrorId)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Permanently deletes the currently active profile from the backend,
+   * including all linked data (Gmail, Spotify, face images, AI settings).
+   */
+  deleteActiveProfile: async (mirrorId) => {
+    const res = await fetch(
+      `${API_URL}/api/mirrors/active-profile?mid=${encodeURIComponent(mirrorId)}`,
+      { method: 'DELETE' }
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Delete failed (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
   login: async (email, password) => {
     const res = await fetch(`${API_URL}/api/auth/login`, {
       method: 'POST',

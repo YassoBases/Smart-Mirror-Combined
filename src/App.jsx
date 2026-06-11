@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
 import SmartMirror from './pages/SmartMirror';
 import Settings from './pages/Settings';
 import Model from './pages/Model';
@@ -14,6 +14,13 @@ import { LanguageProvider } from './contexts/LanguageContext';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { GuestModeProvider } from './contexts/GuestModeContext';
 import { backendApi } from './services/backendApi';
+
+// Wraps PairingScreen as a navigable route — completion or guest entry returns to mirror.
+function PairingRoute() {
+  const navigate = useNavigate();
+  return <PairingScreen onComplete={() => navigate('/')} autoAdvance={false} />;
+}
+
 
 // Flow: [SetupMode if offline] → 'pairing' → 'welcome' (3 s) → 'mirror'
 function AppShell() {
@@ -78,6 +85,7 @@ function AppShell() {
             <Route path="/settings"      element={<Settings />} />
             <Route path="/model"         element={<Model />} />
             <Route path="/modelsettings" element={<ModelSettings />} />
+            <Route path="/pairing"       element={<PairingRoute />} />
           </Routes>
         )}
       </div>

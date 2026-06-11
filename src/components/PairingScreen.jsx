@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useMirrorSync } from '../hooks/useMirrorSync';
 import { useGuestMode } from '../contexts/GuestModeContext';
 import GestureControl from './GestureControl';
@@ -9,29 +9,105 @@ import GestureControl from './GestureControl';
 
 // ─── Main pairing / login screen ─────────────────────────────────────────────
 
-export default function PairingScreen({ onComplete }) {
+export default function PairingScreen({ onComplete, autoAdvance = true }) {
   const { phase, qrData, shortCode, qrExpiring, bridgeOnline, mirrorIp, factoryReset } = useMirrorSync();
   const { enterGuest } = useGuestMode();
+  const [confirmUnlink, setConfirmUnlink] = useState(false);
 
-  // Advance when phone connects via QR
+  // Advance when phone connects via QR — only during the initial intro flow
   useEffect(() => {
-    if (phase === 'ready') onComplete?.();
-  }, [phase, onComplete]);
+    if (autoAdvance && phase === 'ready') onComplete?.();
+  }, [autoAdvance, phase, onComplete]);
 
   // Advance after a short delay if the sync bridge is unreachable
+  // (skip when accessed as a dedicated /pairing route — user stays until they leave manually)
   useEffect(() => {
-    if (phase !== 'bridge_unavailable') return;
+    if (!autoAdvance || phase !== 'bridge_unavailable') return;
     const t = setTimeout(() => onComplete?.(), 1500);
     return () => clearTimeout(t);
-  }, [phase, onComplete]);
+  }, [autoAdvance, phase, onComplete]);
 
   const handleEnterGuest = () => {
     enterGuest();
     onComplete?.();
   };
 
-  const visible = phase === 'booting' || phase === 'pairing' || phase === 'bridge_unavailable';
+  const visible = !autoAdvance || phase === 'booting' || phase === 'pairing' || phase === 'bridge_unavailable';
   if (!visible) return null;
+
+  // When accessed as a route and the mirror is already linked, show a status screen
+  // instead of the QR flow so the user can see current state / re-pair / go back.
+  if (!autoAdvance && phase === 'ready') {
+    return (
+      <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black text-white select-none">
+        <GestureControl />
+
+        {!confirmUnlink ? (
+          <>
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full"
+              style={{ border: '1px solid rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.07)' }}>
+              <svg className="w-7 h-7 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h1 className="text-2xl font-normal text-white/85 mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
+              Mirror is linked
+            </h1>
+            <p className="text-xs text-white/35 mb-10 tracking-wide">
+              A phone account is connected to this mirror.
+            </p>
+            <div className="flex flex-col items-center gap-3 w-64">
+              <button
+                onClick={() => onComplete?.()}
+                className="w-full rounded-full py-3 text-sm text-white/70 transition-all hover:text-white/90 active:scale-95"
+                style={{ border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.05)' }}
+              >
+                ← Back to mirror
+              </button>
+              <button
+                onClick={() => setConfirmUnlink(true)}
+                className="w-full rounded-full py-3 text-sm text-red-400/60 transition-all hover:text-red-400/90 active:scale-95"
+                style={{ border: '1px solid rgba(239,68,68,0.18)' }}
+              >
+                Unlink &amp; re-pair
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full"
+              style={{ border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.07)' }}>
+              <svg className="w-7 h-7 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+              </svg>
+            </div>
+            <h1 className="text-2xl font-normal text-white/85 mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
+              Unlink mirror?
+            </h1>
+            <p className="text-xs text-white/35 mb-10 tracking-wide text-center max-w-xs">
+              This will remove the phone link. You'll need to scan the QR code again to reconnect.
+            </p>
+            <div className="flex flex-col items-center gap-3 w-64">
+              <button
+                onClick={() => factoryReset()}
+                className="w-full rounded-full py-3 text-sm text-red-400/80 transition-all hover:text-red-300 active:scale-95"
+                style={{ border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.06)' }}
+              >
+                Yes, unlink &amp; re-pair
+              </button>
+              <button
+                onClick={() => setConfirmUnlink(false)}
+                className="w-full rounded-full py-3 text-sm text-white/45 transition-all hover:text-white/75 active:scale-95"
+                style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
 
   const hasQR     = Boolean(qrData?.dataUrl);
   const isBooting = phase === 'booting';
@@ -212,6 +288,15 @@ export default function PairingScreen({ onComplete }) {
       >
         Reset device
       </button>
+
+      {!autoAdvance && (
+        <button
+          onClick={() => onComplete?.()}
+          className="relative mt-4 text-[10px] uppercase tracking-[0.2em] text-white/25 transition-colors hover:text-white/55 border border-white/10 rounded-full px-5 py-1.5"
+        >
+          ← Back to mirror
+        </button>
+      )}
     </div>
   );
 }

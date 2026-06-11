@@ -410,7 +410,9 @@ export function useAIAssistant() {
   const isOpenRef       = useRef(false);
   const statusRef       = useRef('idle');
   const cooldownRef     = useRef(false);
-  const sessionRef      = useRef(false);  // local Chat+TTS session active
+  const sessionRef        = useRef(false);  // local Chat+TTS session active
+  const pendingMessageRef = useRef(null);   // message queued while Alex is speaking
+  const isSpeakingRef     = useRef(false);  // true while TTS audio is playing
   const inactivityRef   = useRef(null);
   const abortRef        = useRef(null);
 
@@ -536,11 +538,14 @@ export function useAIAssistant() {
         source.buffer = decoded;
         source.connect(ctx.destination);
         ttsAudioRef.current = source;
+        isSpeakingRef.current = true;
         source.start(0);
         await new Promise(resolve => { source.onended = resolve; });
+        isSpeakingRef.current = false;
         ttsAudioRef.current = null;
         return;
       } catch (err) {
+        isSpeakingRef.current = false;
         console.error('[TTS] ElevenLabs error, falling back to browser TTS:', err);
       }
     }
@@ -591,12 +596,15 @@ export function useAIAssistant() {
       return;
     }
     try {
+      const { name } = cfgRef.current;
       const form = new FormData();
       form.append('file', blob, 'audio.webm');
       form.append('model', 'whisper-1');
       form.append('language', 'en');
+      form.append('temperature', '0');
+      form.append('prompt', `Hey ${name || 'Alex'}, Hey Mirror.`);
       const whisperAbort = new AbortController();
-      const whisperTimer = setTimeout(() => whisperAbort.abort(), 12000);
+      const whisperTimer = setTimeout(() => whisperAbort.abort(), 8000);
       let res;
       try {
         res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
@@ -615,7 +623,7 @@ export function useAIAssistant() {
         const { text = '' } = await res.json();
         const lower = text.trim().toLowerCase();
         console.log('[Whisper] transcript:', lower || '(empty)');
-        if (lower && Date.now() - lastSpeechMsRef.current > 2000) {
+        if (lower && Date.now() - lastSpeechMsRef.current > 300) {
           speechHandlerRef.current(lower);
         }
       }
@@ -688,9 +696,9 @@ export function useAIAssistant() {
       let peakRms = 0;
 
       const THRESHOLD = 10;  // RMS of byte-frequency data; lower = more sensitive
-      const SILENCE_MS = 1400;
+      const SILENCE_MS = 700;   // cut recording 700ms after speech ends (was 1400ms)
       const MAX_MS = 7000;
-      const TICK_MS = 80;    // setTimeout instead of RAF — RAF is throttled when unfocused on Pi
+      const TICK_MS = 40;    // setTimeout instead of RAF — RAF is throttled when unfocused on Pi
 
       const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'].find(m => {
         try { return MediaRecorder.isTypeSupported(m); } catch { return false; }
@@ -738,7 +746,7 @@ export function useAIAssistant() {
         const voice = rms > THRESHOLD;
 
         if (voice) {
-          if (!vadActiveRef.current && vadRecorderRef.current.state === 'inactive' && !vadBusyRef.current) {
+          if (!isSpeakingRef.current && !vadActiveRef.current && vadRecorderRef.current.state === 'inactive' && !vadBusyRef.current) {
             vadActiveRef.current = true;
             vadChunksRef.current = [];
             recStart = Date.now();
@@ -828,7 +836,7 @@ export function useAIAssistant() {
       // trigger close via endSession which is defined below
       // we call it indirectly via ref to avoid circular dep
       endSessionRef.current?.();
-    }, 25000);
+    }, 45000);
   }, []);
 
   const endSessionRef = useRef(null); // will be set after endSession is defined
@@ -859,6 +867,7 @@ export function useAIAssistant() {
     if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
     if (ttsAudioRef.current) { try { ttsAudioRef.current.stop(); } catch {} ttsAudioRef.current = null; }
+    pendingMessageRef.current = null;
     window.speechSynthesis?.cancel();
     releaseWebRTC();
     setIsOpen(false);
@@ -1131,6 +1140,7 @@ export function useAIAssistant() {
       return;
     }
 
+    resetInactivity(); // keep session alive through the full thinking → speaking turn
     setUiStatus('thinking', 'Thinking…');
     setUserText(userMessage);
     setAiText('');
@@ -1220,13 +1230,21 @@ export function useAIAssistant() {
 
         setAiText(responseText);
         setUiStatus('speaking', 'Speaking…');
-        speak(responseText);
+        resetInactivity(); // reset again so a long TTS response doesn't time out mid-word
+        await speak(responseText);
 
         const updatedHistory = [...newHistory, { role: 'assistant', content: responseText }];
         setHistory(updatedHistory);
         saveHistory(updatedHistory);
 
-        setTimeout(() => setUiStatus('listening', 'Listening…'), 400);
+        setUiStatus('listening', 'Listening…');
+
+        // Send any message that arrived while Alex was speaking
+        if (pendingMessageRef.current) {
+          const queued = pendingMessageRef.current;
+          pendingMessageRef.current = null;
+          sendChatRef.current(queued);
+        }
         return;
       }
 
@@ -1237,7 +1255,7 @@ export function useAIAssistant() {
       setUiStatus('error', '', err.message);
       setTimeout(() => setUiStatus('listening', 'Listening…'), 4000);
     }
-  }, [history, setUiStatus, speak]);
+  }, [history, resetInactivity, setUiStatus, speak]);
 
   // Keep a ref so the speech handler can always call the latest sendChatMessage
   const sendChatRef = useRef(sendChatMessage);
@@ -1330,7 +1348,12 @@ export function useAIAssistant() {
 
       // Use Chat+TTS when ElevenLabs is configured, or when WebRTC isn't active
       if (cfgRef.current.elevenLabsKey || !dcRef.current || dcRef.current.readyState !== 'open') {
-        sendChatRef.current(clean);
+        // Queue input if Alex is mid-speech; process it once speaking finishes
+        if (statusRef.current === 'speaking') {
+          pendingMessageRef.current = clean;
+        } else {
+          sendChatRef.current(clean);
+        }
       }
       // When WebRTC is open (and no ElevenLabs), mic stream goes directly to OpenAI
     }

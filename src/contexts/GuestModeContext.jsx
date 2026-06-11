@@ -13,7 +13,7 @@ export function GuestModeProvider({ children }) {
   };
 
   const exitGuest = () => {
-    localStorage.removeItem('sm_guest_mode');
+    localStorage.setItem('sm_guest_mode', 'false');
     setGuestMode(false);
   };
 

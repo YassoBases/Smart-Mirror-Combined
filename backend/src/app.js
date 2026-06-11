@@ -2,6 +2,8 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const os = require("os");
+const https = require("https");
+const http = require("http");
 
 const authRoutes = require("./routes/auth");
 const householdRoutes = require("./routes/households");
@@ -11,6 +13,7 @@ const spotifyRoutes = require("./routes/spotify");
 const mirrorsRoutes = require("./routes/mirrors");
 const devicesRoutes    = require("./routes/devices");
 const alertsRoutes     = require("./routes/alerts");
+const newsRoutes       = require("./routes/news");
 const { getByMirrorId } = require("./controllers/profileController");
 
 const app = express();
@@ -49,6 +52,9 @@ app.use("/api/devices", devicesRoutes);
 
 // Security alerts — store & fetch unknown-face alerts (authenticated)
 app.use("/api/alerts", alertsRoutes);
+
+// RSS proxy — server-side fetch avoids client CORS issues (no auth, allowlisted hosts)
+app.use("/api/news", newsRoutes);
 
 // Health check — useful for the mirror to verify connectivity
 app.get("/health", (_req, res) => {
@@ -96,6 +102,40 @@ app.get("/api/mirror/netinfo", (_req, res) => {
   }
 
   res.json({ apiBaseUrl: `http://${ip}:${port}/api`, ip, port });
+});
+
+// RSS proxy — fetches any RSS feed server-side so the browser avoids CORS.
+// Only allows the known news source hostnames to prevent open-proxy abuse.
+const RSS_ALLOWED_HOSTS = new Set([
+  "feeds.bbci.co.uk",
+  "www.aljazeera.com",
+  "rss.dw.com",
+  "feeds.reuters.com",
+]);
+
+app.get("/api/rss-proxy", (req, res) => {
+  const raw = req.query.url;
+  if (!raw) return res.status(400).json({ error: "Missing url param" });
+
+  let parsed;
+  try { parsed = new URL(raw); } catch { return res.status(400).json({ error: "Invalid url" }); }
+
+  if (!RSS_ALLOWED_HOSTS.has(parsed.hostname)) {
+    return res.status(403).json({ error: "Host not allowed" });
+  }
+
+  const lib = parsed.protocol === "https:" ? https : http;
+  const request = lib.get(raw, { headers: { "User-Agent": "SmartMirror/1.0" } }, (upstream) => {
+    if (upstream.statusCode >= 400) {
+      res.status(502).json({ error: `Upstream returned ${upstream.statusCode}` });
+      upstream.resume();
+      return;
+    }
+    res.setHeader("Content-Type", upstream.headers["content-type"] || "application/rss+xml");
+    upstream.pipe(res);
+  });
+  request.setTimeout(10000, () => { request.destroy(); res.status(504).json({ error: "Upstream timeout" }); });
+  request.on("error", (err) => { if (!res.headersSent) res.status(502).json({ error: err.message }); });
 });
 
 // 404

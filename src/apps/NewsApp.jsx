@@ -18,26 +18,31 @@ export const NEWS_SOURCES = {
     name: 'Al Jazeera',
     url: 'https://www.aljazeera.com/xml/rss/all.xml'
   },
-  trt: {
-    id: 'trt',
-    name: 'TRT World',
-    url: 'https://www.trtworld.com/rss'
+  dw: {
+    id: 'dw',
+    name: 'DW World',
+    url: 'https://rss.dw.com/xml/rss-en-world'
   },
-  turkishminute: {
-    id: 'turkishminute',
-    name: 'Turkish Minute',
-    url: 'https://www.turkishminute.com/feed/'
+  reuters: {
+    id: 'reuters',
+    name: 'Reuters',
+    url: 'https://feeds.reuters.com/reuters/topNews'
   }
 };
 
-export const DEFAULT_SOURCES = ['bbc', 'trt'];
+export const DEFAULT_SOURCES = ['bbc', 'aljazeera'];
 
 // ── RSS fetch helpers ──────────────────────────────────────────────────────
 
-// CORS proxies — tried in order until one works
+// Backend RSS proxy (most reliable — no rate limits, no CORS)
+const backendProxyUrl = url =>
+  `http://${window.location.hostname}:3000/api/news/rss?url=${encodeURIComponent(url)}`;
+
+// CORS proxies — fallbacks if the backend is unreachable
 const PROXIES = [
-  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  backendProxyUrl,
   url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
   url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
 ];
 
