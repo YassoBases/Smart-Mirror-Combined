@@ -38,11 +38,11 @@ router.post(
   profileController.uploadFace,
 );
 
-// Multi-pose face upload — up to 6 images (front + left + right)
+// Multi-pose face upload — up to 24 images (3 poses × 4-frame burst)
 router.post(
   "/:id/faces",
   authenticate,
-  upload.array("faces", 6),
+  upload.array("faces", 24),
   profileController.uploadFaces,
 );
 
