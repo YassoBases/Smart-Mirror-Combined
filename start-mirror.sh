@@ -8,21 +8,15 @@
 #
 # Usage: ./start-mirror.sh
 # Stop:  Ctrl-C (kills all child processes via the trap below)
+#
+# WiFi provisioning is handled by smartmirror-ble-setup.service (systemd),
+# which runs independently of this script. The mirror display starts regardless
+# of network state and shows SetupMode until the Pi comes online.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
-
-# ── 0. WiFi guard — bring the Pi online before starting mirror services ───────
-# No-op if already connected; blocks until the customer provides WiFi credentials
-# via the SmartMirror-Setup captive portal. The systemd unit is the primary path;
-# this covers manual starts and development restarts.
-WIFI_GUARD="$SCRIPT_DIR/provisioning/wifi-guard.sh"
-if [[ -x "$WIFI_GUARD" ]]; then
-  echo "[0/4] WiFi guard (skips if already connected)..."
-  "$WIFI_GUARD" || echo "[!]  wifi-guard exited with errors — continuing anyway."
-fi
 
 PI_IP=$(hostname -I | awk '{print $1}')
 
@@ -39,7 +33,7 @@ echo "  Smart Mirror  |  Pi IP: $PI_IP"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # ── 1. Backend ─────────────────────────────────────────────────────────────
-echo "[1/3] Starting backend (HTTP :3000, WS :4000)..."
+echo "[1/4] Starting backend (HTTP :3000, WS :4000)..."
 npm run backend:start > /tmp/mirror-backend.log 2>&1 &
 BACKEND_PID=$!
 
@@ -64,14 +58,14 @@ else
 fi
 
 # ── 3. Sync bridge ─────────────────────────────────────────────────────────
-echo "[3/4] Starting sync bridge (:4002) → ws://localhost:4000..."
+echo "[3/4] Starting sync bridge (:4002)…"
 MIRROR_BACKEND_URL=ws://localhost:4000 npm run sync:mirror > /tmp/mirror-sync.log 2>&1 &
 SYNC_PID=$!
 
 sleep 4
 
 # ── 4. React frontend ──────────────────────────────────────────────────────
-echo "[4/4] Starting React mirror UI (:3001)..."
+echo "[4/4] Starting React mirror UI (:3001)…"
 PORT=3001 BROWSER=none npm start > /tmp/mirror-react.log 2>&1 &
 REACT_PID=$!
 

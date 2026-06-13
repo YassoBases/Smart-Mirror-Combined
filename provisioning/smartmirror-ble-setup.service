@@ -1,0 +1,21 @@
+[Unit]
+Description=Smart Mirror BLE WiFi Provisioning
+Documentation=https://github.com/YassoBases/Smart-Mirror-Combined
+After=NetworkManager.service bluetooth.service
+Wants=NetworkManager.service bluetooth.service
+# Runs before the mirror UI so the display shows setup instructions if offline.
+Before=smartmirror.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/pi/Smart-Mirror-Combined/provisioning/ble-setup.py
+WorkingDirectory=/home/pi/Smart-Mirror-Combined/provisioning
+# Root required: nmcli dev wifi connect needs elevated privileges on Pi OS.
+User=root
+Restart=on-failure
+RestartSec=5
+# Exit 0 means Pi is already online — no restart needed in that case.
+SuccessExitStatus=0
+
+[Install]
+WantedBy=multi-user.target

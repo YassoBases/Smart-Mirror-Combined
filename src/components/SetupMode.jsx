@@ -1,58 +1,51 @@
 import { useEffect, useState } from 'react';
-import QRCode from 'qrcode';
-
-// Must match wifi-guard.sh defaults (or whatever is printed in the box).
-const PORTAL_SSID = 'SmartMirror-Setup';
-const PORTAL_PASSPHRASE = 'SmartMirror1';
-const PORTAL_URL = 'http://192.168.42.1';
+import { backendApi } from '../services/backendApi';
 
 /**
  * Shown on the HDMI display when the Pi has no LAN IP (netinfo returns 503).
- * Renders setup steps + a WiFi-join QR so the customer knows what to do
- * without needing to read a manual.
- *
- * The parent (App.jsx AppShell) polls /api/mirror/netinfo and unmounts this
- * component once the Pi comes online.
+ * Guides the user through BLE WiFi provisioning via the Smart Mirror phone app.
+ * Unmounted by App.jsx once the Pi comes online.
  */
 export default function SetupMode() {
-  const [wifiQrUrl, setWifiQrUrl] = useState('');
+  const [btName, setBtName] = useState('');
+  const [statusMsg, setStatusMsg] = useState('');
 
+  // Poll netinfo for a BT name hint and provisioning status message.
   useEffect(() => {
-    // Standard WiFi QR format — iOS Camera app and Android scan natively.
-    const wifiString = `WIFI:S:${PORTAL_SSID};T:WPA;P:${PORTAL_PASSPHRASE};;`;
-    QRCode.toDataURL(wifiString, {
-      width: 180,
-      margin: 1,
-      color: { dark: '#000000', light: '#ffffff' },
-    })
-      .then(setWifiQrUrl)
-      .catch(() => {});
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const info = await backendApi.getNetInfo();
+        if (cancelled) return;
+        if (info?.btName)     setBtName(info.btName);
+        if (info?.bleStatus)  setStatusMsg(info.bleStatus);
+      } catch {
+        // Offline — expected; keep showing instructions.
+      }
+    };
+    poll();
+    const id = setInterval(poll, 4000);
+    return () => { cancelled = true; clearInterval(id); };
   }, []);
 
   const steps = [
     {
-      title: `Join the hotspot`,
-      body: (
-        <>
-          On your phone go to <strong>WiFi Settings</strong> and connect to{' '}
-          <span className="text-white/85 font-medium">"{PORTAL_SSID}"</span>
-          <br />
-          Password: <span className="text-white/85 font-medium">{PORTAL_PASSPHRASE}</span>
-        </>
-      ),
+      title: 'Open the Smart Mirror app',
+      body: 'Launch the app on your iPhone or Android phone.',
     },
     {
-      title: 'Open the setup page',
-      body: (
-        <>
-          A page should open automatically. If not, visit{' '}
-          <span className="text-white/60">{PORTAL_URL}</span> in your browser.
-        </>
-      ),
+      title: 'Tap "Set up mirror"',
+      body: 'The app will scan for your mirror over Bluetooth and connect automatically.',
     },
     {
-      title: 'Pick your home WiFi',
-      body: 'Choose your network, enter the password, and tap Connect. The mirror will join and this screen will update.',
+      title: 'Pick your WiFi and enter the password',
+      body: (
+        <>
+          Choose your home WiFi — or your{' '}
+          <span className="text-white/85 font-medium">phone's hotspot</span> — and
+          enter the password. The app sends it to the mirror over Bluetooth.
+        </>
+      ),
     },
   ];
 
@@ -67,23 +60,24 @@ export default function SetupMode() {
         }}
       />
 
-      <div className="relative flex flex-col lg:flex-row items-center gap-12 max-w-3xl px-8 py-10">
+      <div className="relative flex flex-col lg:flex-row items-center gap-16 max-w-3xl px-8 py-10">
         {/* ── Left: instructions ── */}
         <div className="flex-1">
           {/* Status pill */}
           <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.28em] text-white/25 mb-10">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
-            Waiting for WiFi
+            <span className="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse flex-shrink-0" />
+            {statusMsg || 'Waiting for setup'}
           </div>
 
           <h1
             className="text-4xl font-normal tracking-tight text-white/90 mb-3"
             style={{ fontFamily: "'Playfair Display', serif" }}
           >
-            Set up WiFi
+            Set up over Bluetooth
           </h1>
           <p className="text-sm text-white/40 mb-8 leading-relaxed">
-            Your mirror isn't connected to a network yet. Follow these steps to get it online.
+            Your mirror isn't connected to a network yet. Use the phone app to
+            send your WiFi credentials over Bluetooth — no hotspot switching needed.
           </p>
 
           <ol className="space-y-6">
@@ -104,34 +98,35 @@ export default function SetupMode() {
           </ol>
         </div>
 
-        {/* ── Right: WiFi join QR ── */}
+        {/* ── Right: BT name panel ── */}
         <div className="flex flex-col items-center gap-4 flex-shrink-0">
-          {wifiQrUrl ? (
-            <>
-              <div className="rounded-2xl bg-white p-3 shadow-xl">
-                <img
-                  src={wifiQrUrl}
-                  alt={`Scan to join ${PORTAL_SSID}`}
-                  width={180}
-                  height={180}
-                  className="block"
-                  draggable={false}
-                />
-              </div>
-              <p className="text-[11px] text-white/30 text-center leading-relaxed">
-                Scan to join
-                <br />
-                <span className="text-white/55 font-medium">{PORTAL_SSID}</span>
-              </p>
-            </>
-          ) : (
-            <div
-              className="rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/20 text-xs"
-              style={{ width: 206, height: 206 }}
+          <div
+            className="rounded-2xl border border-white/10 bg-white/5 flex flex-col items-center justify-center gap-3 px-8 py-8"
+            style={{ minWidth: 180 }}
+          >
+            {/* Bluetooth icon */}
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-10 h-10 text-sky-400/70"
             >
-              Generating…
-            </div>
-          )}
+              <path d="M6.5 6.5l11 11L12 23V1l5.5 5.5-11 11" />
+            </svg>
+
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/25 text-center">
+              Look for this name
+            </p>
+            <p className="text-base font-semibold text-white/80 text-center leading-tight">
+              {btName || 'Smart Mirror ····'}
+            </p>
+          </div>
+          <p className="text-[11px] text-white/25 text-center leading-relaxed max-w-[180px]">
+            This is your mirror's Bluetooth name. Select it in the app.
+          </p>
         </div>
       </div>
     </div>
