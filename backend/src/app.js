@@ -14,6 +14,7 @@ const mirrorsRoutes = require("./routes/mirrors");
 const devicesRoutes    = require("./routes/devices");
 const alertsRoutes     = require("./routes/alerts");
 const newsRoutes       = require("./routes/news");
+const provisioningRoutes = require("./routes/provisioning");
 const { getByMirrorId } = require("./controllers/profileController");
 
 const app = express();
@@ -55,6 +56,9 @@ app.use("/api/alerts", alertsRoutes);
 
 // RSS proxy — server-side fetch avoids client CORS issues (no auth, allowlisted hosts)
 app.use("/api/news", newsRoutes);
+
+// BLE WiFi re-provisioning — start/stop "Change WiFi" setup mode (authenticated)
+app.use("/api/provisioning", provisioningRoutes);
 
 // Health check — useful for the mirror to verify connectivity
 app.get("/health", (_req, res) => {

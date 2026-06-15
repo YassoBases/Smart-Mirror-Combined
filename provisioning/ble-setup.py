@@ -16,6 +16,7 @@ Requirements:
   sudo systemctl enable bluetooth
 """
 
+import argparse
 import json
 import logging
 import socket
@@ -24,6 +25,8 @@ import sys
 import threading
 import time
 
+import dbus
+import dbus.service
 from gi.repository import GLib  # python3-gi / gir1.2-glib-2.0
 
 logging.basicConfig(
@@ -38,6 +41,77 @@ SERVICE_UUID     = '4fafc201-1fb5-459e-8fcc-c5c9c3319143'
 NETWORKS_UUID    = 'beb5483e-36e1-4688-b7f5-ea07361b26a8'
 CREDENTIALS_UUID = 'a9b1c2d3-e4f5-6789-abcd-ef0123456789'
 STATUS_UUID      = 'c0d1e2f3-a4b5-6789-cdef-012345678901'
+
+
+# ---------------------------------------------------------------------------
+# Silent "Just Works" pairing agent
+# ---------------------------------------------------------------------------
+# The Credentials/Status characteristics use encrypt-write/encrypt-read, so BlueZ
+# bonds the link before the phone can send the password. Registering our own agent
+# with capability NoInputNoOutput forces "Just Works" pairing — every request is
+# auto-accepted here, so NO passkey/PIN is ever rendered on the mirror's screen.
+
+AGENT_IFACE = 'org.bluez.Agent1'
+AGENT_PATH  = '/com/smartmirror/agent'
+AGENT_CAP   = 'NoInputNoOutput'
+BLUEZ_SVC   = 'org.bluez'
+
+
+class _NoInputNoOutputAgent(dbus.service.Object):
+    """org.bluez.Agent1 that auto-accepts everything (silent Just-Works)."""
+
+    @dbus.service.method(AGENT_IFACE, in_signature='', out_signature='')
+    def Release(self):
+        log.info('Pairing agent released')
+
+    @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
+    def AuthorizeService(self, device, uuid):
+        log.info('AuthorizeService %s %s -> allow', device, uuid)
+
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='s')
+    def RequestPinCode(self, device):
+        return '0000'  # legacy BR/EDR only; unused for BLE Just-Works
+
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='u')
+    def RequestPasskey(self, device):
+        return dbus.UInt32(0)
+
+    @dbus.service.method(AGENT_IFACE, in_signature='ouq', out_signature='')
+    def DisplayPasskey(self, device, passkey, entered):
+        pass  # no-op: never render a passkey on screen
+
+    @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
+    def DisplayPinCode(self, device, pincode):
+        pass
+
+    @dbus.service.method(AGENT_IFACE, in_signature='ou', out_signature='')
+    def RequestConfirmation(self, device, passkey):
+        log.info('RequestConfirmation %s -> auto-confirm', device)
+
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
+    def RequestAuthorization(self, device):
+        log.info('RequestAuthorization %s -> allow', device)
+
+    @dbus.service.method(AGENT_IFACE, in_signature='', out_signature='')
+    def Cancel(self):
+        log.info('Pairing cancelled by remote')
+
+
+def _register_agent():
+    """Register the silent agent as the system default. Returns the agent object,
+    which must be kept referenced for the lifetime of the process."""
+    bus = dbus.SystemBus()
+    agent = _NoInputNoOutputAgent(bus, AGENT_PATH)
+    mgr = dbus.Interface(bus.get_object(BLUEZ_SVC, '/org/bluez'),
+                         'org.bluez.AgentManager1')
+    mgr.RegisterAgent(AGENT_PATH, AGENT_CAP)
+    try:
+        mgr.RequestDefaultAgent(AGENT_PATH)
+    except dbus.DBusException as e:
+        # A desktop session may already hold the default agent; RegisterAgent still
+        # routes the bonding for our device to us, so this is non-fatal.
+        log.warning('RequestDefaultAgent failed (%s); registered agent stands.', e)
+    return agent
 
 
 # ---------------------------------------------------------------------------
@@ -61,14 +135,24 @@ def _nm_wait(timeout: int = 30) -> bool:
 
 
 def _nm_is_online() -> bool:
+    # nmcli CONNECTIVITY is stale when queried as root — use kernel-level checks instead.
     try:
-        r = subprocess.run(
-            ['nmcli', '-t', '-f', 'CONNECTIVITY', 'g'],
-            capture_output=True, text=True, timeout=5,
-        )
-        return r.stdout.strip() in ('full', 'limited')
+        r = subprocess.run(['iw', 'dev', 'wlan0', 'link'],
+                           capture_output=True, text=True, timeout=5)
+        if 'Connected to' in r.stdout:
+            return True
     except Exception:
-        return False
+        pass
+    try:
+        # Ethernet fallback
+        r = subprocess.run(['ip', 'route', 'show', 'default'],
+                           capture_output=True, text=True, timeout=5)
+        for line in r.stdout.splitlines():
+            if 'eth' in line:
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def _scan_networks() -> list:
@@ -103,6 +187,11 @@ def _get_lan_ip() -> str:
 
 
 def _connect_wifi(ssid: str, password: str) -> tuple:
+    # Remove any stale profile so nmcli creates a fresh one (avoids key-mgmt mismatch errors).
+    subprocess.run(
+        ['nmcli', 'connection', 'delete', 'id', ssid],
+        capture_output=True, text=True, timeout=5,
+    )
     cmd = ['nmcli', 'dev', 'wifi', 'connect', ssid]
     if password:
         cmd += ['password', password]
@@ -142,7 +231,7 @@ def _enc(obj) -> list:
 # ---------------------------------------------------------------------------
 
 class _BleProvisioner:
-    def __init__(self, adapter_addr: str):
+    def __init__(self, adapter_addr: str, force: bool = False):
         from bluezero import peripheral
 
         dev_name = f'Smart Mirror {_bt_short_id()}'
@@ -165,6 +254,8 @@ class _BleProvisioner:
             write_callback=None,
             notify_callback=None,
         )
+        self._networks_char = self._p.characteristics[-1]
+
         # Credentials — phone writes {ssid, password}.
         # encrypt-write forces the link to be bonded/encrypted before the write
         # is accepted, so the WiFi password never travels over plaintext BLE.
@@ -190,10 +281,14 @@ class _BleProvisioner:
             write_callback=None,
             notify_callback=None,
         )
+        self._status_char = self._p.characteristics[-1]
 
-        self._creds_event = threading.Event()
-        self._pending: dict = {}
+        self._force = force
+        self._wake = threading.Event()   # set when the phone writes credentials
+        self._pending = None             # dict of the last-written credentials
         self._lock = threading.Lock()
+        self._start = time.monotonic()
+        self._agent = None               # keep the pairing agent referenced
 
     # Called from the GLib event-loop thread when the phone writes credentials.
     def _on_credentials_write(self, value, options):
@@ -201,7 +296,7 @@ class _BleProvisioner:
             creds = json.loads(bytes(value).decode())
             with self._lock:
                 self._pending = creds
-            self._creds_event.set()
+            self._wake.set()
         except Exception as e:
             log.warning('Malformed credentials payload: %s', e)
 
@@ -217,7 +312,7 @@ class _BleProvisioner:
         GLib.idle_add(self._notify_status)
 
     def _notify_status(self) -> bool:
-        self._p.update_value(srv_id=1, chr_id=3, value=self._status)
+        self._status_char.set_value(self._status)
         return GLib.SOURCE_REMOVE
 
     def _update_networks(self, nets: list) -> None:
@@ -225,54 +320,97 @@ class _BleProvisioner:
         GLib.idle_add(self._notify_networks)
 
     def _notify_networks(self) -> bool:
-        self._p.update_value(srv_id=1, chr_id=1, value=self._networks)
+        self._networks_char.set_value(self._networks)
         return GLib.SOURCE_REMOVE
 
-    # Runs in a background thread so the GLib loop (in main thread) stays responsive.
-    def _provisioner_loop(self) -> None:
-        log.info('Scanning for networks…')
-        self._update_status('scanning')
+    # Re-scan WiFi and push the fresh list to the phone. Runs on the provisioner
+    # thread (nmcli can take a few seconds) — never on the GLib main thread.
+    def _rescan(self) -> None:
         nets = _scan_networks()
         log.info('Found %d network(s)', len(nets))
         self._update_networks(nets)
+
+    def _handle_credentials(self, creds: dict) -> bool:
+        """Try to join the network. Returns True on success (loop should stop)."""
+        ssid     = creds.get('ssid', '').strip()
+        password = creds.get('password', '')
+        if not ssid:
+            log.warning('Empty SSID — ignoring')
+            return False
+
+        log.info('Connecting to "%s"…', ssid)
+        self._update_status('connecting')
+
+        ok, err = _connect_wifi(ssid, password)
+        if ok:
+            ip      = _get_lan_ip()
+            api_url = f'http://{ip}:3000/api' if ip else ''
+            log.info('Connected  IP=%s  apiBaseUrl=%s', ip, api_url)
+            self._update_status('connected', ip=ip, api_base_url=api_url)
+            # Allow the phone 3 s to read the final status before we exit.
+            time.sleep(3)
+            GLib.idle_add(self._quit_loop)
+            return True
+
+        log.warning('Connection failed: %s', err)
+        self._update_status('failed')
+        # Keep advertising so the user can correct the password and retry.
+        return False
+
+    # Runs in a background thread so the GLib loop (in main thread) stays responsive.
+    def _provisioner_loop(self) -> None:
+        # Keep the network list fresh so it is never empty when a phone connects.
+        # At boot wlan0 may not be ready yet (the first scan returns nothing), so we
+        # rescan on a timer until it is — and to reflect networks coming/going.
+        log.info('Scanning for networks…')
+        self._update_status('scanning')
+        self._rescan()
         self._update_status('idle')
 
+        force_timeout = 300  # --force shouldn't advertise forever if abandoned
+
         while True:
-            self._creds_event.wait()
-            self._creds_event.clear()
+            try:
+                if self._wake.wait(timeout=10):
+                    # The phone wrote credentials.
+                    self._wake.clear()
+                    with self._lock:
+                        creds = self._pending
+                        self._pending = None
+                    if creds and self._handle_credentials(creds):
+                        return
+                    continue
 
-            with self._lock:
-                creds = dict(self._pending)
-
-            ssid     = creds.get('ssid', '').strip()
-            password = creds.get('password', '')
-            if not ssid:
-                log.warning('Empty SSID — ignoring')
-                continue
-
-            log.info('Connecting to "%s"…', ssid)
-            self._update_status('connecting')
-
-            ok, err = _connect_wifi(ssid, password)
-            if ok:
-                ip      = _get_lan_ip()
-                api_url = f'http://{ip}:3000/api' if ip else ''
-                log.info('Connected  IP=%s  apiBaseUrl=%s', ip, api_url)
-                self._update_status('connected', ip=ip, api_base_url=api_url)
-                # Allow the phone 3 s to read the final status before we exit.
-                time.sleep(3)
-                GLib.idle_add(self._quit_loop)
-                return
-            else:
-                log.warning('Connection failed: %s', err)
-                self._update_status('failed')
-                # Keep advertising so the user can correct the password and retry.
+                # Periodic tick (no credentials this interval):
+                if not self._force and _nm_is_online():
+                    # The Pi connected on its own (e.g. a saved profile came up
+                    # after boot) — nothing to provision; free the advert slot.
+                    log.info('Pi is online — stopping BLE provisioning.')
+                    GLib.idle_add(self._quit_loop)
+                    return
+                if self._force and (time.monotonic() - self._start) > force_timeout:
+                    log.info('Re-provision window elapsed with no connection — exiting.')
+                    GLib.idle_add(self._quit_loop)
+                    return
+                # Keep the list current and self-heal an empty boot-time scan.
+                self._rescan()
+            except Exception:
+                log.exception('provisioner loop iteration failed; continuing')
 
     def _quit_loop(self) -> bool:
-        self._p.main_loop.quit()
+        self._p.mainloop.quit()
         return GLib.SOURCE_REMOVE
 
     def run(self) -> None:
+        # Register the silent Just-Works agent and make the adapter pairable so the
+        # encrypted-characteristic bonding happens without any on-screen passkey.
+        try:
+            self._agent = _register_agent()
+            self._p.dongle.pairable = True
+            log.info('Pairing agent registered (NoInputNoOutput); adapter pairable.')
+        except Exception as e:
+            log.warning('Could not register pairing agent: %s', e)
+
         threading.Thread(
             target=self._provisioner_loop,
             name='provisioner',
@@ -287,12 +425,19 @@ class _BleProvisioner:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description='Smart Mirror BLE WiFi provisioning')
+    parser.add_argument(
+        '--force', action='store_true',
+        help='Advertise for provisioning even if the Pi is already online '
+             '(used by the "Change WiFi" re-provision flow).')
+    args = parser.parse_args()
+
     log.info('Waiting for NetworkManager…')
     if not _nm_wait(30):
         log.error('NetworkManager did not start — exiting')
         sys.exit(1)
 
-    if _nm_is_online():
+    if not args.force and _nm_is_online():
         log.info('Pi is already online — BLE setup not needed.')
         sys.exit(0)
 
@@ -307,7 +452,9 @@ def main() -> None:
         log.error('No Bluetooth adapter found.  Is bluetoothd running?  Check rfkill.')
         sys.exit(1)
 
-    provisioner = _BleProvisioner(adapters[0])
+    if args.force:
+        log.info('Starting in --force mode (re-provision while online allowed).')
+    provisioner = _BleProvisioner(adapters[0], force=args.force)
     provisioner.run()
     log.info('Provisioning complete.')
 
