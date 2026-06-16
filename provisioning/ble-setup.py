@@ -343,7 +343,16 @@ class _BleProvisioner:
 
         ok, err = _connect_wifi(ssid, password)
         if ok:
-            ip      = _get_lan_ip()
+            # nmcli returns the moment the link associates, but DHCP/routing can
+            # take a few seconds to settle — poll briefly so we hand the phone a
+            # real IP/apiBaseUrl instead of an empty one (the app needs the URL
+            # to reach the backend and skip QR pairing).
+            ip = ''
+            for _ in range(15):
+                ip = _get_lan_ip()
+                if ip:
+                    break
+                time.sleep(1)
             api_url = f'http://{ip}:3000/api' if ip else ''
             log.info('Connected  IP=%s  apiBaseUrl=%s', ip, api_url)
             self._update_status('connected', ip=ip, api_base_url=api_url)
@@ -367,7 +376,7 @@ class _BleProvisioner:
         self._rescan()
         self._update_status('idle')
 
-        force_timeout = 300  # --force shouldn't advertise forever if abandoned
+        force_timeout = 900  # --force shouldn't advertise forever if abandoned (15 min)
 
         while True:
             try:
