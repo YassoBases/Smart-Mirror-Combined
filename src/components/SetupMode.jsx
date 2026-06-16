@@ -10,18 +10,21 @@ export default function SetupMode() {
   const [btName, setBtName] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
 
-  // Poll netinfo for a BT name hint and provisioning status message.
+  // Poll the BLE daemon's state for the real BT name + a provisioning status message.
+  // getBleStatus reads the local state file, so it works even while the Pi is offline.
   useEffect(() => {
     let cancelled = false;
+    const STATUS_MSGS = {
+      scanning:   'Scanning for networks…',
+      connecting: 'Connecting to WiFi…',
+      connected:  'Connected',
+      failed:     'Last attempt failed — try again',
+    };
     const poll = async () => {
-      try {
-        const info = await backendApi.getNetInfo();
-        if (cancelled) return;
-        if (info?.btName)     setBtName(info.btName);
-        if (info?.bleStatus)  setStatusMsg(info.bleStatus);
-      } catch {
-        // Offline — expected; keep showing instructions.
-      }
+      const info = await backendApi.getBleStatus();
+      if (cancelled) return;
+      if (info?.btName) setBtName(info.btName);
+      setStatusMsg(STATUS_MSGS[info?.state] || '');
     };
     poll();
     const id = setInterval(poll, 4000);

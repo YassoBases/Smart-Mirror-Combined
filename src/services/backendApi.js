@@ -112,6 +112,22 @@ export const backendApi = {
   },
 
   /**
+   * Returns the BLE provisioning state the Pi daemon publishes during WiFi setup:
+   * { btName, state, pairingCode, pairingState }. Used by SetupMode (real BT name)
+   * and PairingCodeOverlay (live 6-digit pairing code). Never throws — returns {}
+   * when no setup is in progress or the backend is unreachable.
+   */
+  getBleStatus: async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/mirror/ble-status`);
+      if (!res.ok) return {};
+      return await res.json();
+    } catch {
+      return {};
+    }
+  },
+
+  /**
    * Returns this mirror's permanent ID (a UUID).
    * Generated once on first call and persisted in localStorage.
    * The phone app enters this ID to link itself to this mirror.

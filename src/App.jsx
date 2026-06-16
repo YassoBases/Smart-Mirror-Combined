@@ -9,6 +9,7 @@ import Alerts from './pages/Alerts';
 import PairingScreen from './components/PairingScreen';
 import WelcomeScreen from './components/WelcomeScreen';
 import SetupMode from './components/SetupMode';
+import PairingCodeOverlay from './components/PairingCodeOverlay';
 import VirtualKeyboard from './components/VirtualKeyboard';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { ProfileProvider } from './contexts/ProfileContext';
@@ -59,10 +60,20 @@ function AppShell() {
   // Brief connecting state — show a plain black screen to avoid a flash.
   if (isOffline === null) return <div className="fixed inset-0 bg-black" />;
 
-  // Pi has no LAN IP yet — guide the customer through WiFi setup.
-  if (isOffline) return <SetupMode />;
+  // Pi has no LAN IP yet — guide the customer through WiFi setup. The pairing-code
+  // overlay sits on top so the 6-digit code appears during the BLE bond.
+  if (isOffline) {
+    return (
+      <>
+        <PairingCodeOverlay />
+        <SetupMode />
+      </>
+    );
+  }
 
   return (
+    <>
+    <PairingCodeOverlay />
     <Router
       future={{
         v7_startTransition: true,
@@ -90,6 +101,7 @@ function AppShell() {
         )}
       </div>
     </Router>
+    </>
   );
 }
 

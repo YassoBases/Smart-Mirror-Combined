@@ -19,6 +19,7 @@ Requirements:
 import argparse
 import json
 import logging
+import os
 import socket
 import subprocess
 import sys
@@ -44,25 +45,95 @@ STATUS_UUID      = 'c0d1e2f3-a4b5-6789-cdef-012345678901'
 
 
 # ---------------------------------------------------------------------------
-# Silent "Just Works" pairing agent
+# UI state file — the only channel from this root daemon to the React mirror UI
+# ---------------------------------------------------------------------------
+# The non-root Node backend reads this file and serves it at GET /api/mirror/ble-status;
+# the React UI (SetupMode / PairingCodeOverlay) polls that endpoint. We reuse the
+# privilege-separated /run/smartmirror dir already created by the tmpfiles unit.
+
+UI_STATE_DIR  = '/run/smartmirror'
+UI_STATE_FILE = UI_STATE_DIR + '/ble-state.json'
+
+
+class _UiState:
+    """Thread-safe writer for the daemon → mirror-UI handoff file."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._data = {
+            'btName': '',
+            'state': 'idle',
+            'pairingCode': None,
+            'pairingState': 'idle',
+        }
+
+    def _flush(self) -> None:
+        self._data['updatedAt'] = int(time.time())
+        try:
+            os.makedirs(UI_STATE_DIR, exist_ok=True)
+            tmp = UI_STATE_FILE + '.tmp'
+            with open(tmp, 'w') as f:
+                json.dump(self._data, f)
+            os.replace(tmp, UI_STATE_FILE)      # atomic swap
+            os.chmod(UI_STATE_FILE, 0o644)      # let the non-root backend read it
+        except Exception as e:
+            log.warning('Could not write UI state file: %s', e)
+
+    def set_name(self, name: str) -> None:
+        with self._lock:
+            self._data['btName'] = name
+            self._flush()
+
+    def set_status(self, state: str) -> None:
+        with self._lock:
+            self._data['state'] = state
+            # Any post-bond state means pairing is over — drop the code.
+            if state in ('connecting', 'connected', 'failed'):
+                self._data['pairingCode'] = None
+                self._data['pairingState'] = 'idle'
+            self._flush()
+
+    def set_pairing(self, code: str) -> None:
+        with self._lock:
+            self._data['pairingCode'] = code
+            self._data['pairingState'] = 'pairing'
+            self._flush()
+
+    def clear_pairing(self) -> None:
+        with self._lock:
+            self._data['pairingCode'] = None
+            self._data['pairingState'] = 'idle'
+            self._flush()
+
+
+ui_state = _UiState()
+
+
+# ---------------------------------------------------------------------------
+# Pairing agent — numeric comparison (visible 6-digit code)
 # ---------------------------------------------------------------------------
 # The Credentials/Status characteristics use encrypt-write/encrypt-read, so BlueZ
-# bonds the link before the phone can send the password. Registering our own agent
-# with capability NoInputNoOutput forces "Just Works" pairing — every request is
-# auto-accepted here, so NO passkey/PIN is ever rendered on the mirror's screen.
+# bonds the link before the phone can send the password. We register our own agent
+# with capability DisplayYesNo so bonding uses LE Secure Connections *numeric
+# comparison*: BlueZ hands us a 6-digit passkey via RequestConfirmation, we publish
+# it to the mirror UI (so the user can check it matches the code their phone shows)
+# and auto-confirm — the mirror has no input during setup, so the human confirms on
+# the phone. This adds MITM protection over the old silent "Just Works" pairing.
 
 AGENT_IFACE = 'org.bluez.Agent1'
 AGENT_PATH  = '/com/smartmirror/agent'
-AGENT_CAP   = 'NoInputNoOutput'
+AGENT_CAP   = 'DisplayYesNo'
 BLUEZ_SVC   = 'org.bluez'
 
 
-class _NoInputNoOutputAgent(dbus.service.Object):
-    """org.bluez.Agent1 that auto-accepts everything (silent Just-Works)."""
+class _NumericComparisonAgent(dbus.service.Object):
+    """org.bluez.Agent1 (DisplayYesNo): publishes the pairing passkey to the mirror
+    UI and auto-confirms, so bonding uses numeric comparison with a visible code."""
 
     @dbus.service.method(AGENT_IFACE, in_signature='', out_signature='')
     def Release(self):
         log.info('Pairing agent released')
+        ui_state.clear_pairing()
 
     @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
     def AuthorizeService(self, device, uuid):
@@ -70,7 +141,7 @@ class _NoInputNoOutputAgent(dbus.service.Object):
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='s')
     def RequestPinCode(self, device):
-        return '0000'  # legacy BR/EDR only; unused for BLE Just-Works
+        return '0000'  # legacy BR/EDR only; unused for BLE
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='u')
     def RequestPasskey(self, device):
@@ -78,7 +149,10 @@ class _NoInputNoOutputAgent(dbus.service.Object):
 
     @dbus.service.method(AGENT_IFACE, in_signature='ouq', out_signature='')
     def DisplayPasskey(self, device, passkey, entered):
-        pass  # no-op: never render a passkey on screen
+        # Passkey-entry fallback (peer asked us to display): show it on the mirror.
+        code = '%06d' % int(passkey)
+        log.info('DisplayPasskey %s -> %s', device, code)
+        ui_state.set_pairing(code)
 
     @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
     def DisplayPinCode(self, device, pincode):
@@ -86,7 +160,13 @@ class _NoInputNoOutputAgent(dbus.service.Object):
 
     @dbus.service.method(AGENT_IFACE, in_signature='ou', out_signature='')
     def RequestConfirmation(self, device, passkey):
-        log.info('RequestConfirmation %s -> auto-confirm', device)
+        # Numeric comparison: show the 6-digit code on the mirror so the user can
+        # check it matches the code their phone shows, then auto-confirm (the mirror
+        # has no setup-time input; the human confirms on the phone). Returning
+        # normally accepts the pairing.
+        code = '%06d' % int(passkey)
+        log.info('RequestConfirmation %s passkey=%s -> show + auto-confirm', device, code)
+        ui_state.set_pairing(code)
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
     def RequestAuthorization(self, device):
@@ -95,13 +175,14 @@ class _NoInputNoOutputAgent(dbus.service.Object):
     @dbus.service.method(AGENT_IFACE, in_signature='', out_signature='')
     def Cancel(self):
         log.info('Pairing cancelled by remote')
+        ui_state.clear_pairing()
 
 
 def _register_agent():
     """Register the silent agent as the system default. Returns the agent object,
     which must be kept referenced for the lifetime of the process."""
     bus = dbus.SystemBus()
-    agent = _NoInputNoOutputAgent(bus, AGENT_PATH)
+    agent = _NumericComparisonAgent(bus, AGENT_PATH)
     mgr = dbus.Interface(bus.get_object(BLUEZ_SVC, '/org/bluez'),
                          'org.bluez.AgentManager1')
     mgr.RegisterAgent(AGENT_PATH, AGENT_CAP)
@@ -236,6 +317,7 @@ class _BleProvisioner:
 
         dev_name = f'Smart Mirror {_bt_short_id()}'
         log.info('BLE device name: "%s"', dev_name)
+        ui_state.set_name(dev_name)   # surface the real name to the mirror UI
 
         self._p = peripheral.Peripheral(adapter_addr, local_name=dev_name)
         self._p.add_service(srv_id=1, uuid=SERVICE_UUID, primary=True)
@@ -250,7 +332,7 @@ class _BleProvisioner:
             value=self._networks,
             notifying=False,
             flags=['read', 'notify'],
-            read_callback=lambda: self._networks,
+            read_callback=self._read_networks,
             write_callback=None,
             notify_callback=None,
         )
@@ -292,6 +374,9 @@ class _BleProvisioner:
 
     # Called from the GLib event-loop thread when the phone writes credentials.
     def _on_credentials_write(self, value, options):
+        # A credentials write only succeeds over a bonded/encrypted link, so by now
+        # pairing is done — clear the on-screen code regardless of payload validity.
+        ui_state.clear_pairing()
         try:
             creds = json.loads(bytes(value).decode())
             with self._lock:
@@ -300,9 +385,16 @@ class _BleProvisioner:
         except Exception as e:
             log.warning('Malformed credentials payload: %s', e)
 
+    def _read_networks(self):
+        # The phone reads Networks as its first operation after bonding completes,
+        # so this is the moment to take the pairing code off the mirror screen.
+        ui_state.clear_pairing()
+        return self._networks
+
     # _update_* methods are called from the provisioner thread.
     # GLib.idle_add queues the D-Bus notification onto the main loop thread.
     def _update_status(self, state: str, ip: str = '', api_base_url: str = '') -> None:
+        ui_state.set_status(state)   # mirror the GATT status onto the UI state file
         obj: dict = {'state': state}
         if ip:
             obj['ip'] = ip
@@ -411,12 +503,12 @@ class _BleProvisioner:
         return GLib.SOURCE_REMOVE
 
     def run(self) -> None:
-        # Register the silent Just-Works agent and make the adapter pairable so the
-        # encrypted-characteristic bonding happens without any on-screen passkey.
+        # Register the numeric-comparison agent and make the adapter pairable so the
+        # encrypted-characteristic bonding shows a 6-digit code the user can confirm.
         try:
             self._agent = _register_agent()
             self._p.dongle.pairable = True
-            log.info('Pairing agent registered (NoInputNoOutput); adapter pairable.')
+            log.info('Pairing agent registered (DisplayYesNo / numeric comparison); adapter pairable.')
         except Exception as e:
             log.warning('Could not register pairing agent: %s', e)
 

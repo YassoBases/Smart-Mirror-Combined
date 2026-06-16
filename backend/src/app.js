@@ -4,6 +4,7 @@ const path = require("path");
 const os = require("os");
 const https = require("https");
 const http = require("http");
+const fs = require("fs");
 
 const authRoutes = require("./routes/auth");
 const householdRoutes = require("./routes/households");
@@ -106,6 +107,42 @@ app.get("/api/mirror/netinfo", (_req, res) => {
   }
 
   res.json({ apiBaseUrl: `http://${ip}:${port}/api`, ip, port });
+});
+
+// BLE provisioning state for the mirror UI. The root BLE daemon (provisioning/
+// ble-setup.py) writes /run/smartmirror/ble-state.json during setup; we surface it
+// so SetupMode shows the real Bluetooth name and PairingCodeOverlay can render the
+// live 6-digit pairing code. Unauthenticated like /netinfo — a localhost/LAN read
+// with no secrets (the code is a short-lived SMP passkey only useful to someone
+// physically at the mirror, and it self-expires below).
+const BLE_STATE_FILE = "/run/smartmirror/ble-state.json";
+const BLE_PAIRING_TTL_MS = 120000; // hide a stale code if the daemon died mid-pair
+
+app.get("/api/mirror/ble-status", (_req, res) => {
+  fs.readFile(BLE_STATE_FILE, "utf8", (err, raw) => {
+    if (err) return res.json({}); // daemon not running / no setup in progress
+    let s;
+    try {
+      s = JSON.parse(raw);
+    } catch {
+      return res.json({});
+    }
+
+    // Drop a stale pairing code so the overlay can never get stuck showing one.
+    const ageMs = Date.now() - (Number(s.updatedAt) || 0) * 1000;
+    let { pairingCode = null, pairingState = "idle" } = s;
+    if (pairingState === "pairing" && ageMs > BLE_PAIRING_TTL_MS) {
+      pairingCode = null;
+      pairingState = "idle";
+    }
+
+    res.json({
+      btName: s.btName || "",
+      state: s.state || "idle",
+      pairingCode: pairingCode || null,
+      pairingState,
+    });
+  });
 });
 
 // RSS proxy — fetches any RSS feed server-side so the browser avoids CORS.
