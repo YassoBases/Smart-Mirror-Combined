@@ -63,8 +63,36 @@ install -m 0644 "$PROV/smartmirror-ble-reprovision-trigger.service" \
     "$SYSD/smartmirror-ble-reprovision-trigger.service"
 echo "Installed reprovision trigger .path/.service"
 
+# --- NetworkManager dispatcher: re-advertise BLE when wlan0 drops at runtime ----
+# If WiFi is lost while the mirror is running (router off, SSID changed, password
+# rotated), NM runs this script and it starts the boot setup unit, so the phone app
+# can recover the mirror over BLE. Must be root-owned and not world-writable, or NM
+# ignores it.
+install -d "/etc/NetworkManager/dispatcher.d"
+install -m 0755 -o root -g root "$PROV/90-smartmirror-ble" \
+    "/etc/NetworkManager/dispatcher.d/90-smartmirror-ble"
+echo "Installed /etc/NetworkManager/dispatcher.d/90-smartmirror-ble"
+
+# The dispatcher daemon must be running for the script above to fire on link loss.
+systemctl enable --now NetworkManager-dispatcher.service
+
 # Defensively remove any earlier sudoers-based trigger (superseded by the watcher).
 rm -f "/etc/sudoers.d/10-smartmirror-ble"
+
+# --- JustWorksRepairing = always (allow re-pair during provisioning) ----------
+BT_CONF="/etc/bluetooth/main.conf"
+if [[ -f "$BT_CONF" ]]; then
+  if grep -qE '^\s*#?\s*JustWorksRepairing\s*=' "$BT_CONF"; then
+    sed -i 's|^[[:space:]]*#\?[[:space:]]*JustWorksRepairing[[:space:]]*=.*|JustWorksRepairing = always|' "$BT_CONF"
+  elif grep -q '^\[General\]' "$BT_CONF"; then
+    sed -i '/^\[General\]/a JustWorksRepairing = always' "$BT_CONF"
+  else
+    printf '\n[General]\nJustWorksRepairing = always\n' >> "$BT_CONF"
+  fi
+  echo "Set JustWorksRepairing = always in $BT_CONF"
+  systemctl restart bluetooth.service
+  echo "Restarted bluetooth.service"
+fi
 
 systemctl daemon-reload
 systemctl enable smartmirror-ble-setup.service

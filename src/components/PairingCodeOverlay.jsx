@@ -20,7 +20,7 @@ export default function PairingCodeOverlay() {
       setCode(s?.pairingState === 'pairing' && s?.pairingCode ? String(s.pairingCode) : null);
     };
     poll();
-    const id = setInterval(poll, 1500); // snappy so the code appears as the phone asks
+    const id = setInterval(poll, 1000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 

@@ -32,20 +32,32 @@ function AppShell() {
   const handlePairingComplete = useCallback(() => setIntroPhase('welcome'), []);
   const handleWelcomeDone     = useCallback(() => setIntroPhase('mirror'),  []);
 
-  // Poll netinfo — show SetupMode until the Pi has a LAN IP.
+  // Poll netinfo — show SetupMode whenever the Pi has no LAN IP. The poll keeps
+  // running after the first success, so a runtime WiFi drop (local backend returns
+  // 503 offline) flips the screen back to SetupMode within ~5 s, with no F5.
+  // Require 3 consecutive failures (~15 s) before declaring offline so a
+  // boot-time race (backend slow / no IP yet) doesn't flash the setup screen.
   useEffect(() => {
     let cancelled = false;
     let timerId = null;
+    let failures = 0;
 
     const check = async () => {
       try {
         await backendApi.getNetInfo();
         if (!cancelled) {
+          failures = 0;
           setIsOffline(false);
-          clearInterval(timerId);
         }
-      } catch {
-        if (!cancelled) setIsOffline(v => (v === false ? false : true));
+      } catch (e) {
+        if (!cancelled) {
+          if (e.offline) {
+            setIsOffline(true);
+          } else {
+            failures += 1;
+            if (failures >= 3) setIsOffline(v => (v === false ? false : true));
+          }
+        }
       }
     };
 
@@ -57,8 +69,14 @@ function AppShell() {
     };
   }, []);
 
-  // Brief connecting state — show a plain black screen to avoid a flash.
-  if (isOffline === null) return <div className="fixed inset-0 bg-black" />;
+  // Brief connecting state — overlay stays mounted so a pairing code can show
+  // even before we know the network state.
+  if (isOffline === null) return (
+    <>
+      <PairingCodeOverlay />
+      <div className="fixed inset-0 bg-black" />
+    </>
+  );
 
   // Pi has no LAN IP yet — guide the customer through WiFi setup. The pairing-code
   // overlay sits on top so the 6-digit code appears during the BLE bond.

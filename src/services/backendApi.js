@@ -106,7 +106,19 @@ export const backendApi = {
    * Returns { apiBaseUrl, ip, port }. Used to embed the host in the pairing QR.
    */
   getNetInfo: async () => {
-    const res = await fetch(`${API_URL}/api/mirror/netinfo`);
+    let res;
+    try {
+      res = await fetch(`${API_URL}/api/mirror/netinfo`);
+    } catch (e) {
+      const err = new Error('Backend unreachable');
+      err.backendDown = true;
+      throw err;
+    }
+    if (res.status === 503) {
+      const err = new Error('Mirror offline (no LAN IP)');
+      err.offline = true;
+      throw err;
+    }
     if (!res.ok) throw new Error(`netinfo failed (HTTP ${res.status})`);
     return res.json();
   },

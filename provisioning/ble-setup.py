@@ -120,6 +120,8 @@ ui_state = _UiState()
 # and auto-confirm — the mirror has no input during setup, so the human confirms on
 # the phone. This adds MITM protection over the old silent "Just Works" pairing.
 
+ONLINE_GRACE_SECS = 30
+
 AGENT_IFACE = 'org.bluez.Agent1'
 AGENT_PATH  = '/com/smartmirror/agent'
 AGENT_CAP   = 'DisplayYesNo'
@@ -195,6 +197,31 @@ def _register_agent():
     return agent
 
 
+def _remove_known_devices():
+    """Remove all paired/known devices so stale bonds don't block re-pairing."""
+    bus = dbus.SystemBus()
+    try:
+        om = dbus.Interface(bus.get_object(BLUEZ_SVC, '/'),
+                            'org.freedesktop.DBus.ObjectManager')
+        objects = om.GetManagedObjects()
+    except dbus.DBusException as e:
+        log.warning('Could not enumerate BlueZ objects: %s', e)
+        return
+    removed = 0
+    for path, ifaces in objects.items():
+        if 'org.bluez.Device1' not in ifaces:
+            continue
+        adapter_path = ifaces['org.bluez.Device1'].get('Adapter', '/org/bluez/hci0')
+        try:
+            adapter = dbus.Interface(bus.get_object(BLUEZ_SVC, adapter_path),
+                                     'org.bluez.Adapter1')
+            adapter.RemoveDevice(path)
+            removed += 1
+        except dbus.DBusException as e:
+            log.debug('RemoveDevice(%s) failed: %s', path, e)
+    log.info('Cleared %d known device(s) before advertising.', removed)
+
+
 # ---------------------------------------------------------------------------
 # NetworkManager helpers
 # ---------------------------------------------------------------------------
@@ -234,6 +261,23 @@ def _nm_is_online() -> bool:
     except Exception:
         pass
     return False
+
+
+def _wait_for_online(timeout: int) -> bool:
+    """Give NetworkManager time to bring up a saved network at boot before
+    concluding the Pi needs provisioning. nm-online -s returns the instant NM
+    finishes its autoconnect attempts, so a genuine first-boot (nothing saved)
+    still enters setup promptly."""
+    try:
+        subprocess.run(['nm-online', '-s', '-t', str(timeout)],
+                       capture_output=True, timeout=timeout + 5)
+    except Exception:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if _nm_is_online():
+                return True
+            time.sleep(2)
+    return _nm_is_online()
 
 
 def _scan_networks() -> list:
@@ -503,6 +547,7 @@ class _BleProvisioner:
         return GLib.SOURCE_REMOVE
 
     def run(self) -> None:
+        _remove_known_devices()
         # Register the numeric-comparison agent and make the adapter pairable so the
         # encrypted-characteristic bonding shows a 6-digit code the user can confirm.
         try:
@@ -538,9 +583,12 @@ def main() -> None:
         log.error('NetworkManager did not start — exiting')
         sys.exit(1)
 
-    if not args.force and _nm_is_online():
-        log.info('Pi is already online — BLE setup not needed.')
-        sys.exit(0)
+    if not args.force:
+        log.info('Waiting up to %ds for an existing network connection…', ONLINE_GRACE_SECS)
+        if _wait_for_online(ONLINE_GRACE_SECS):
+            log.info('Pi is online — BLE setup not needed.')
+            sys.exit(0)
+        log.info('Still offline after %ds — entering BLE setup mode.', ONLINE_GRACE_SECS)
 
     try:
         from bluezero import adapter as bz_adapter
