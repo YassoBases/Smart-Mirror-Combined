@@ -27,6 +27,7 @@ import threading
 import time
 
 import dbus
+import dbus.exceptions
 import dbus.service
 from gi.repository import GLib  # python3-gi / gir1.2-glib-2.0
 
@@ -128,6 +129,19 @@ AGENT_CAP   = 'DisplayYesNo'
 BLUEZ_SVC   = 'org.bluez'
 
 
+# Classic BR/EDR audio/telephony profile short-UUIDs that Android auto-connects
+# right after LE bonding (dual-mode hijack). Rejected during provisioning so the
+# BLE GATT link stays free; classic BT is unaffected outside this agent's scope.
+_CLASSIC_AUDIO_UUIDS = frozenset({
+    '1108', '1112',   # HSP (Headset, Headset HS)
+    '111e', '111f',   # HFP (Handsfree, Handsfree AG)
+    '110a', '110b',   # A2DP (Audio Source, Audio Sink)
+    '110c', '110d',   # A/V Remote Control (Target, Remote Control)
+    '110e', '110f',   # A/V Remote Control (Controller)
+    '112d',           # SIM Access Profile
+})
+
+
 class _NumericComparisonAgent(dbus.service.Object):
     """org.bluez.Agent1 (DisplayYesNo): publishes the pairing passkey to the mirror
     UI and auto-confirms, so bonding uses numeric comparison with a visible code."""
@@ -139,6 +153,13 @@ class _NumericComparisonAgent(dbus.service.Object):
 
     @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
     def AuthorizeService(self, device, uuid):
+        short = uuid[4:8].lower()
+        if short in _CLASSIC_AUDIO_UUIDS:
+            log.info('AuthorizeService %s %s -> reject (classic audio during BLE setup)', device, uuid)
+            raise dbus.exceptions.DBusException(
+                'Rejected: classic audio profiles blocked during BLE provisioning',
+                name='org.bluez.Error.Rejected',
+            )
         log.info('AuthorizeService %s %s -> allow', device, uuid)
 
     @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='s')
@@ -368,6 +389,10 @@ class _BleProvisioner:
 
         self._networks: list = _enc([])
         self._status: list   = _enc({'state': 'idle'})
+        # Snapshots pinned on each offset-0 read so a concurrent rescan swapping
+        # self._networks can't corrupt an in-flight Read Blob reassembly.
+        self._net_read_buf: list    = self._networks
+        self._status_read_buf: list = self._status
 
         # Networks — phone reads the list of SSIDs the Pi can see.
         self._p.add_characteristic(
@@ -403,7 +428,7 @@ class _BleProvisioner:
             value=self._status,
             notifying=False,
             flags=['read', 'notify', 'encrypt-read'],
-            read_callback=lambda: self._status,
+            read_callback=self._read_status,
             write_callback=None,
             notify_callback=None,
         )
@@ -429,11 +454,30 @@ class _BleProvisioner:
         except Exception as e:
             log.warning('Malformed credentials payload: %s', e)
 
-    def _read_networks(self):
+    def _read_networks(self, options=None):
         # The phone reads Networks as its first operation after bonding completes,
         # so this is the moment to take the pairing code off the mirror screen.
         ui_state.clear_pairing()
-        return self._networks
+        return self._read_blob('_net_read_buf', self._networks, options)
+
+    def _read_status(self, options=None):
+        return self._read_blob('_status_read_buf', self._status, options)
+
+    def _read_blob(self, buf_attr, current, options):
+        # bluezero hands us the ATT options dict (incl. 'offset') only because these
+        # callbacks take exactly one parameter. Honor the Read Blob offset so a value
+        # larger than one ATT packet (MTU-1) is read correctly instead of re-sending
+        # from byte 0 on every blob (which corrupts the phone's JSON reassembly).
+        offset = 0
+        if options:
+            try:
+                offset = int(options.get('offset', 0))
+            except (TypeError, ValueError):
+                offset = 0
+        if offset <= 0:                            # fresh read: pin the value being served
+            setattr(self, buf_attr, current)
+            return current
+        return getattr(self, buf_attr)[offset:]    # blob continuation: serve the snapshot
 
     # _update_* methods are called from the provisioner thread.
     # GLib.idle_add queues the D-Bus notification onto the main loop thread.
