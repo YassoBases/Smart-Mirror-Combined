@@ -19,6 +19,7 @@ import WeatherApp from '../apps/WeatherApp';
 import NewsApp from '../apps/NewsApp';
 import SpotifyApp from '../apps/spotify/App';
 import GmailApp from '../apps/gmail/GmailApp';
+import WardrobeWidget from '../widgets/Wardrobe';
 
 const RESIZE_ZONE = 60;           // px from bottom-right corner that triggers gesture resize
 const DRAG_COMMIT_TIME_MS = 500;  // ms of sustained pinch before committing to drag/resize
@@ -501,6 +502,9 @@ const SmartMirror = () => {
   const handleHandPosition = (position) => {
     // Update ref without triggering a React re-render; CursorOverlay reads this via RAF.
     cursorPositionRef.current = position;
+    // Re-broadcast the raw hand payload so opt-in widgets (e.g. the Wardrobe
+    // gesture recognizer) can detect hands-free gestures without a second camera.
+    window.dispatchEvent(new CustomEvent('smartMirror:hand', { detail: position }));
     if (position.detected !== cursorDetectedRef.current) {
       cursorDetectedRef.current = position.detected;
       setIsHandDetected(position.detected);
@@ -805,7 +809,8 @@ const SmartMirror = () => {
     WeatherApp,
     NewsApp,
     SpotifyApp,
-    GmailApp
+    GmailApp,
+    WardrobeWidget
   };
 
   const renderApp = (app) => {

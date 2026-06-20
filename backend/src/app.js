@@ -16,6 +16,7 @@ const devicesRoutes    = require("./routes/devices");
 const alertsRoutes     = require("./routes/alerts");
 const newsRoutes       = require("./routes/news");
 const provisioningRoutes = require("./routes/provisioning");
+const wardrobeRoutes = require("./routes/wardrobe");
 const { getByMirrorId } = require("./controllers/profileController");
 
 const app = express();
@@ -34,10 +35,22 @@ app.use("/faces", express.static(path.join(__dirname, "../data/faces")));
 // Serve alert snapshot images at http://<host>:3000/alert-snapshots/filename.jpg
 app.use("/alert-snapshots", express.static(path.join(__dirname, "../data/alert-snapshots")));
 
+// Serve wardrobe item / body / render images, same mechanism as faces.
+// e.g. http://<host>:3000/wardrobe/<profileId>/<itemId>/nobg.png
+app.use("/wardrobe", express.static(path.join(__dirname, "../data/wardrobe")));
+
+// Demo acceptance dashboard (admin/defense): self-contained page that plots the
+// acceptance metrics. http://<host>:3000/admin/wardrobe/?mid=demo-mirror
+app.use("/admin/wardrobe", express.static(path.join(__dirname, "../../tools/acceptance_dashboard")));
+
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/households", householdRoutes);
 app.use("/api/profiles", profileRoutes);
+// Wardrobe (Flutter, JWT) — nested under each profile, e.g.
+// /api/profiles/:profileId/wardrobe/items. Mounted after profileRoutes; its
+// deeper paths never collide with the profiles router's /:id routes.
+app.use("/api/profiles/:profileId", wardrobeRoutes.jwtRouter);
 // Gmail OAuth callback — Google calls this directly, no JWT
 app.use("/api/gmail", gmailRoutes);
 // Spotify OAuth callback — Spotify calls this directly, no JWT
@@ -48,6 +61,9 @@ app.get("/api/mirror/:mirrorId/profiles", getByMirrorId);
 
 // Mirror routes — active user polling, Gmail status, Gmail messages
 app.use("/api/mirrors", mirrorsRoutes);
+// Wardrobe for the mirror widget — no JWT, resolves the active profile from
+// ?mid=<mirrorId>. Distinct /wardrobe prefix, so it never overlaps the routes above.
+app.use("/api/mirrors/wardrobe", wardrobeRoutes.mirrorRouter);
 
 // FCM device token registration (authenticated)
 app.use("/api/devices", devicesRoutes);

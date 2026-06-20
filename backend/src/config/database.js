@@ -2,9 +2,15 @@ const { open } = require("sqlite");
 const sqlite3 = require("sqlite3");
 const path = require("path");
 const fs = require("fs");
+const { initWardrobeSchema } = require("../../db/wardrobe");
 
-const DB_PATH = path.join(__dirname, "../../data/smart_mirror.db");
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+// SMART_MIRROR_DB overrides the on-disk location (used by tests for an isolated
+// DB, e.g. a temp file or ":memory:"). Defaults to the normal data dir.
+const DB_PATH =
+  process.env.SMART_MIRROR_DB || path.join(__dirname, "../../data/smart_mirror.db");
+if (DB_PATH !== ":memory:") {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+}
 
 // Module-level promise — resolved once on first require, reused everywhere
 const dbPromise = open({ filename: DB_PATH, driver: sqlite3.Database }).then(
@@ -137,6 +143,10 @@ const dbPromise = open({ filename: DB_PATH, driver: sqlite3.Database }).then(
         FOREIGN KEY (household_id) REFERENCES households(id) ON DELETE CASCADE
       );
     `);
+
+    // Wardrobe feature tables (items, feedback, render cache, pref-model meta)
+    // + profiles.body_photo_filename. Self-contained and idempotent.
+    await initWardrobeSchema(db);
 
     return db;
   },

@@ -68,6 +68,16 @@ export const apps = [
     }
   },
   {
+    id: 'wardrobe',
+    name: 'Wardrobe',
+    description: 'AI outfit suggestions from your closet with virtual try-on',
+    componentPath: 'WardrobeWidget',
+    enabled: false,
+    defaultPosition: { x: 760, y: 380 },
+    defaultSize: { width: 360, height: 480 },
+    settings: {}
+  },
+  {
     id: 'handtracking',
     name: 'Hand Tracking',
     description: 'Camera-based hand tracking with cursor control',
