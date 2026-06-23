@@ -5,6 +5,53 @@ const spotifyService = require('../services/spotifyService');
 const { pairSession, pairByCode } = require('../services/mirrorSync');
 const { authenticate } = require('../middleware/auth');
 const { sendToHousehold } = require('../services/pushService');
+const { getSetting, setSetting } = require('../services/settingsService');
+
+// ── Integration settings (set from the mirror Settings UI) ───────────────────
+// Stores the Replicate API token (and optional VTON model + public base URL) in
+// the DB so they don't have to live in backend/.env. Unauthenticated like the
+// other mirror endpoints — a local/LAN read-write on the personal mirror. The
+// GET never returns the secret value, only whether it is configured.
+router.get('/integrations', async (_req, res, next) => {
+  try {
+    const token = await getSetting('replicate_api_token', process.env.REPLICATE_API_TOKEN || '');
+    res.json({
+      replicate: {
+        configured: !!token,
+        model: await getSetting('replicate_vton_model', process.env.REPLICATE_VTON_MODEL || ''),
+      },
+      publicBaseUrl: await getSetting('public_base_url', process.env.PUBLIC_BASE_URL || ''),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/integrations', async (req, res, next) => {
+  try {
+    const { replicateApiToken, replicateModel, publicBaseUrl } = req.body || {};
+    if (typeof replicateApiToken === 'string' && replicateApiToken.trim()) {
+      await setSetting('replicate_api_token', replicateApiToken.trim());
+    }
+    if (typeof replicateModel === 'string') {
+      await setSetting('replicate_vton_model', replicateModel.trim());
+    }
+    if (typeof publicBaseUrl === 'string') {
+      await setSetting('public_base_url', publicBaseUrl.trim());
+    }
+    const token = await getSetting('replicate_api_token', process.env.REPLICATE_API_TOKEN || '');
+    res.json({
+      ok: true,
+      replicate: {
+        configured: !!token,
+        model: await getSetting('replicate_vton_model', process.env.REPLICATE_VTON_MODEL || ''),
+      },
+      publicBaseUrl: await getSetting('public_base_url', process.env.PUBLIC_BASE_URL || ''),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ── POST /api/mirrors/pair ────────────────────────────────────────────────────
 // Phone calls this after scanning the mirror's QR code.

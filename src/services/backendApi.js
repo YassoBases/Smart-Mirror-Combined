@@ -295,6 +295,31 @@ export const backendApi = {
       },
     };
   },
+
+  // ── Integrations (Replicate API key, etc.) ────────────────────────────────
+  // Stored server-side (renders run on the backend). GET never returns the
+  // secret — only whether it is configured.
+
+  getIntegrations: async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/mirrors/integrations`);
+      if (!res.ok) return null;
+      return res.json();
+    } catch {
+      return null;
+    }
+  },
+
+  saveIntegrations: async (payload) => {
+    const res = await fetch(`${API_URL}/api/mirrors/integrations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Save failed (HTTP ${res.status})`);
+    return data;
+  },
 };
 
 // Map backend profile shape → mirror profile shape

@@ -148,6 +148,16 @@ const dbPromise = open({ filename: DB_PATH, driver: sqlite3.Database }).then(
     // + profiles.body_photo_filename. Self-contained and idempotent.
     await initWardrobeSchema(db);
 
+    // Generic app settings (integration keys set from the mirror Settings UI,
+    // e.g. the Replicate API token). Values are read at request time.
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key        TEXT PRIMARY KEY,
+        value      TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     return db;
   },
 );

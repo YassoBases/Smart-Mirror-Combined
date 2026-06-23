@@ -53,15 +53,19 @@ async function poll(predictionUrl, headers, { timeoutMs = 120000 } = {}) {
  * @param {{ humanImageUrl:string, garmentImageUrl:string, garmentDes?:string }} args
  * @returns {Promise<string>} output image URL
  */
-async function tryOn({ humanImageUrl, garmentImageUrl, garmentDes }) {
-  if (!REPLICATE_API_TOKEN) {
+async function tryOn({ humanImageUrl, garmentImageUrl, garmentDes, apiToken, model }) {
+  // Prefer a token/model passed by the caller (set from the mirror Settings UI),
+  // falling back to the env values.
+  const token = apiToken || REPLICATE_API_TOKEN;
+  const modelRef = model || REPLICATE_VTON_MODEL;
+  if (!token) {
     throw Object.assign(new Error("REPLICATE_API_TOKEN not configured"), {
       code: "REPLICATE_UNSET",
     });
   }
-  const { version } = parseModel(REPLICATE_VTON_MODEL);
+  const { version } = parseModel(modelRef);
   const headers = {
-    Authorization: `Bearer ${REPLICATE_API_TOKEN}`,
+    Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
 

@@ -13,6 +13,7 @@ const anthropicClient = require("../../lib/anthropic");
 const replicate = require("../../lib/replicate");
 const prefClient = require("../../lib/pref_client");
 const contextLib = require("../../lib/context");
+const settings = require("./../services/settingsService");
 const {
   validate,
   itemPatchSchema,
@@ -282,10 +283,17 @@ async function renderOutfit(req, res, next) {
     const bottom = rows.find((r) => r.category === "bottom");
     const bodyUrl = bodyPhotoUrl(req, profileId, bodyFilename);
 
+    // Replicate config: prefer values set in the mirror Settings UI (app_settings),
+    // fall back to env. publicBase is the origin Replicate fetches images from.
+    const apiToken = await settings.getSetting("replicate_api_token", process.env.REPLICATE_API_TOKEN);
+    const model = await settings.getSetting("replicate_vton_model", process.env.REPLICATE_VTON_MODEL);
+    const publicBase =
+      (await settings.getSetting("public_base_url", process.env.PUBLIC_BASE_URL)) || publicRoot(req);
+
     let finalUrl = bodyUrl;
-    if (replicate.isConfigured()) {
+    if (apiToken || replicate.isConfigured()) {
       try {
-        const pub = publicRoot(req);
+        const pub = publicBase.replace(/\/$/, "");
         // Inputs sent to Replicate must be public; the body image starts the chain.
         let human = `${pub}/wardrobe/${profileId}/body/${bodyFilename}`;
         if (top) {
@@ -293,6 +301,8 @@ async function renderOutfit(req, res, next) {
             humanImageUrl: human,
             garmentImageUrl: itemImageUrl(pub, profileId, top),
             garmentDes: top.subcategory || "top",
+            apiToken,
+            model,
           });
         }
         if (bottom) {
@@ -300,6 +310,8 @@ async function renderOutfit(req, res, next) {
             humanImageUrl: human,
             garmentImageUrl: itemImageUrl(pub, profileId, bottom),
             garmentDes: bottom.subcategory || "bottom",
+            apiToken,
+            model,
           });
         }
         finalUrl = human;

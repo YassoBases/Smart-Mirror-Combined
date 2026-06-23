@@ -65,6 +65,13 @@ const Settings = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
+  // Wardrobe / Replicate integration (stored server-side; renders run on backend)
+  const [integrations, setIntegrations] = useState(null);
+  const [replicateKeyInput, setReplicateKeyInput] = useState('');
+  const [showReplicateKey, setShowReplicateKey] = useState(false);
+  const [savingReplicate, setSavingReplicate] = useState(false);
+  const [replicateSaved, setReplicateSaved] = useState(false);
+
   const assistantSettings = aiAssistantSettings.settings || {};
   const selectedAccent = getAccentOption(generalSettings.accent);
   const selectedFont = getFontOption(generalSettings.font);
@@ -96,6 +103,30 @@ const Settings = () => {
     const timer = setInterval(fetchProfiles, 10000);
     return () => { cancelled = true; clearInterval(timer); };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    backendApi.getIntegrations().then((data) => { if (!cancelled && data) setIntegrations(data); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSaveReplicate = async () => {
+    setSavingReplicate(true);
+    setReplicateSaved(false);
+    try {
+      const payload = {};
+      if (replicateKeyInput.trim()) payload.replicateApiToken = replicateKeyInput.trim();
+      const data = await backendApi.saveIntegrations(payload);
+      setIntegrations(data);
+      setReplicateKeyInput('');
+      setReplicateSaved(true);
+      setTimeout(() => setReplicateSaved(false), 2500);
+    } catch (e) {
+      console.warn('[Settings] save Replicate key failed:', e.message);
+    } finally {
+      setSavingReplicate(false);
+    }
+  };
 
   const handleToggleApp = (appId, enabled) => {
     toggleAppEnabled(appId, enabled);
@@ -1495,6 +1526,65 @@ const Settings = () => {
                   Displays the live transcript to confirm hotword detection.
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Integrations section (Replicate / virtual try-on) ───────────────── */}
+        <div className="mb-10">
+          <div className="rounded-2xl p-6" style={{ border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.025)' }}>
+            <div className="mb-6">
+              <p className="text-[9px] uppercase tracking-[0.28em] text-white/25 mb-1">Wardrobe</p>
+              <h2
+                className="text-xl font-normal text-white/80"
+                style={{ fontFamily: "'Playfair Display', serif" }}
+              >Integrations</h2>
+              <p className="text-xs text-white/30 mt-1">
+                Connect Replicate to enable virtual try-on renders in the Wardrobe widget.
+              </p>
+            </div>
+
+            <div className="md:col-span-2">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-[9px] uppercase tracking-[0.28em] text-white/25">Replicate API Key</label>
+                {integrations?.replicate?.configured ? (
+                  <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-300/70">Configured</span>
+                ) : (
+                  <span className="text-[10px] uppercase tracking-[0.2em] text-amber-200/60">Not set</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type={showReplicateKey ? 'text' : 'password'}
+                  value={replicateKeyInput}
+                  onChange={(e) => setReplicateKeyInput(e.target.value)}
+                  placeholder={integrations?.replicate?.configured ? '•••••••• (enter a new key to replace)' : 'r8_...'}
+                  className="lux-input flex-1"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowReplicateKey((prev) => !prev)}
+                  className="text-[10px] uppercase tracking-[0.2em] text-white/30 rounded-lg px-3 py-2 transition-colors hover:text-white/60 whitespace-nowrap"
+                  style={{ border: '1px solid rgba(255,255,255,0.07)' }}
+                >
+                  {showReplicateKey ? 'Hide' : 'Show'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveReplicate}
+                  disabled={savingReplicate || !replicateKeyInput.trim()}
+                  className="text-[10px] uppercase tracking-[0.2em] text-white/70 rounded-lg px-4 py-2 transition-colors hover:text-white disabled:opacity-30 whitespace-nowrap"
+                  style={{ border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)' }}
+                >
+                  {savingReplicate ? 'Saving…' : replicateSaved ? 'Saved ✓' : 'Save'}
+                </button>
+              </div>
+              <p className="text-[10px] text-white/20 mt-2">
+                Stored securely on the mirror's backend (never in the browser). Get a key at replicate.com/account/api-tokens.
+                Live try-on also needs the backend reachable from the internet (PUBLIC_BASE_URL).
+              </p>
             </div>
           </div>
         </div>
