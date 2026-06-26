@@ -86,7 +86,21 @@ def outfit_vector(items: List[Dict[str, Any]], subcat_vocab: List[str]) -> np.nd
     return vec / norm if norm > 0 else vec
 
 
+# A chosen occasion is a much stronger formality signal than time of day.
+OCCASION_FORMALITY = {
+    "sport": 1.5,
+    "casual": 2.0,
+    "smart casual": 3.0,
+    "party": 3.5,
+    "business": 4.0,
+    "formal": 5.0,
+}
+
+
 def _target_formality(context: Dict[str, Any]) -> float:
+    occ = (context or {}).get("occasion")
+    if isinstance(occ, str) and occ.lower() in OCCASION_FORMALITY:
+        return OCCASION_FORMALITY[occ.lower()]
     tod = (context or {}).get("timeOfDay")
     return {"morning": 2.5, "afternoon": 2.5, "evening": 3.5, "night": 3.5}.get(tod, 3.0)
 

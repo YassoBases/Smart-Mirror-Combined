@@ -23,18 +23,37 @@ SUBCATEGORY_TO_CATEGORY = {
     # tops
     "t-shirt": "top", "shirt": "top", "blouse": "top", "henley": "top",
     "sweater": "top", "hoodie": "top", "tank": "top", "polo": "top",
+    "dress": "top", "jumper": "top",
     # bottoms
     "jeans": "bottom", "trousers": "bottom", "chinos": "bottom",
     "shorts": "bottom", "skirt": "bottom", "leggings": "bottom",
+    "joggers": "bottom", "sweatpants": "bottom",
     # outerwear
     "jacket": "outerwear", "coat": "outerwear", "blazer": "outerwear",
-    "cardigan": "outerwear", "parka": "outerwear",
+    "cardigan": "outerwear", "parka": "outerwear", "puffer": "outerwear",
+    "trench": "outerwear", "overcoat": "outerwear", "windbreaker": "outerwear",
     # footwear
     "sneakers": "footwear", "boots": "footwear", "heels": "footwear",
-    "loafers": "footwear", "sandals": "footwear",
+    "loafers": "footwear", "sandals": "footwear", "trainers": "footwear",
     # accessory
     "hat": "accessory", "scarf": "accessory", "belt": "accessory", "bag": "accessory",
+    "cap": "accessory", "gloves": "accessory", "sunglasses": "accessory",
+    "watch": "accessory", "tie": "accessory", "beanie": "accessory",
 }
+
+# Substring → category fallback for labels not in the exact map above, so an
+# unseen subcategory (e.g. "cargo pants", "chelsea boots") still lands in the
+# right closet tab instead of silently defaulting to "top".
+_CATEGORY_KEYWORDS = [
+    ("bottom", ("pant", "jean", "trouser", "chino", "short", "skirt",
+                "legging", "jogger", "sweatpant", "slack")),
+    ("footwear", ("shoe", "sneaker", "boot", "heel", "loafer", "sandal",
+                  "trainer", "flip", "footwear", "clog")),
+    ("outerwear", ("jacket", "coat", "blazer", "cardigan", "parka", "puffer",
+                   "trench", "overcoat", "windbreaker", "anorak")),
+    ("accessory", ("hat", "cap", "scarf", "belt", "bag", "glove", "sunglass",
+                   "watch", "tie", "beanie", "necklace", "earring", "ring")),
+]
 
 # Warmth (1-5) hint from fabric, before category adjustment.
 FABRIC_WARMTH = {
@@ -58,8 +77,14 @@ def parse_model_json(text: str) -> Dict[str, Any]:
 
 
 def category_for(subcategory: Any) -> str:
-    if isinstance(subcategory, str):
-        return SUBCATEGORY_TO_CATEGORY.get(subcategory.lower().strip(), "top")
+    if not isinstance(subcategory, str):
+        return "top"
+    s = subcategory.lower().strip()
+    if s in SUBCATEGORY_TO_CATEGORY:
+        return SUBCATEGORY_TO_CATEGORY[s]
+    for category, keywords in _CATEGORY_KEYWORDS:
+        if any(k in s for k in keywords):
+            return category
     return "top"
 
 

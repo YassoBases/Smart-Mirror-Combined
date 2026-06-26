@@ -93,8 +93,15 @@ def score(req: ScoreRequest):
     stats = bundle["stats"]
     rows = [feat.candidate_features(c.items, req.context, stats) for c in req.candidates]
     if rows:
-        preds = model.predict(rows)
-        scores = [float(p) for p in preds]
+        if hasattr(model, "predict_proba"):
+            # Classifier: score = P(like). Locate the column for class label 1.
+            proba = model.predict_proba(rows)
+            classes = list(getattr(model, "classes_", [0, 1]))
+            idx = classes.index(1) if 1 in classes else len(classes) - 1
+            scores = [float(row[idx]) for row in proba]
+        else:
+            # Backward-compat: an older ranker bundle returns raw scores.
+            scores = [float(p) for p in model.predict(rows)]
     return {"scores": scores, "model": True}
 
 
@@ -111,18 +118,24 @@ def train(req: TrainRequest):
     X = [feat.candidate_features(s["items"], s.get("context", {}), stats) for s in samples]
     y = [int(s["label"]) for s in samples]
 
-    ranker = lgb.LGBMRanker(
-        objective="lambdarank",
-        n_estimators=100,
-        num_leaves=15,
-        min_child_samples=1,
+    # Each feedback row is an independent up/down judgement, so model this as
+    # binary classification and score candidates by P(like) = predict_proba — more
+    # principled than ranking all samples within one synthetic group. Complexity is
+    # scaled to the (typically small) feedback set to avoid memorizing it.
+    n = len(X)
+    clf = lgb.LGBMClassifier(
+        objective="binary",
+        n_estimators=min(80, max(20, n * 4)),
+        num_leaves=7,
+        min_child_samples=max(2, n // 5),
+        learning_rate=0.05,
         random_state=42,
+        verbose=-1,
     )
-    # Whole sample set is one ranking group.
-    ranker.fit(X, y, group=[len(X)])
+    clf.fit(X, y)
 
     trained_at = datetime.now(timezone.utc).isoformat()
-    joblib.dump({"model": ranker, "stats": stats, "trained_at": trained_at}, _model_path(req.profile_id))
+    joblib.dump({"model": clf, "stats": stats, "trained_at": trained_at}, _model_path(req.profile_id))
     return {
         "trained": True,
         "n": len(samples),

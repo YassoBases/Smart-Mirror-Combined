@@ -51,11 +51,24 @@ def _load():
 
 
 def _dominant_colors(img: Image.Image):
-    """Pixel-derived primary + secondary colors as #RRGGBB (no ML)."""
-    small = img.convert("RGB").resize((48, 48))
-    counts = Counter(small.getdata()).most_common(3)
+    """Pixel-derived primary + secondary colors as #RRGGBB (no ML).
+
+    Operates on RGBA so background-removed (transparent) pixels and near-white
+    studio padding are ignored — otherwise the removed background (which becomes
+    black when flattened to RGB) would dominate and every garment would read as
+    black. Falls back to None when nothing opaque remains.
+    """
+    rgba = img.convert("RGBA").resize((64, 64))
+    pixels = [
+        (r, g, b)
+        for (r, g, b, a) in rgba.getdata()
+        if a >= 128 and not (r > 244 and g > 244 and b > 244)
+    ]
+    if not pixels:
+        return {"primaryColor": None, "secondaryColors": []}
+    counts = Counter(pixels).most_common(3)
     to_hex = lambda c: "#{:02X}{:02X}{:02X}".format(*c)
-    primary = to_hex(counts[0][0]) if counts else None
+    primary = to_hex(counts[0][0])
     secondary = [to_hex(c) for c, _ in counts[1:]]
     return {"primaryColor": primary, "secondaryColors": secondary}
 
@@ -72,17 +85,19 @@ async def caption(image: UploadFile = File(...), authorization: str = Header(def
 
     data = await image.read()
     try:
-        img = Image.open(io.BytesIO(data)).convert("RGB")
+        img = Image.open(io.BytesIO(data))  # keep alpha if present (nobg PNG)
     except Exception:
         raise HTTPException(status_code=400, detail="invalid image")
 
+    # Colours from the original (alpha-aware); the model needs flat RGB.
     colors = _dominant_colors(img)
+    rgb = img.convert("RGB")
 
     try:
         _load()
         import torch
 
-        inputs = _processor(images=img, text=PROMPT, return_tensors="pt").to(_model.device)
+        inputs = _processor(images=rgb, text=PROMPT, return_tensors="pt").to(_model.device)
         with torch.no_grad():
             out = _model.generate(**inputs, max_new_tokens=128)
         text = _processor.batch_decode(out, skip_special_tokens=True)[0]

@@ -102,6 +102,11 @@ def test_train_then_score_roundtrip():
     body = sc.json()
     assert body["model"] is True
     assert len(body["scores"]) == 2
+    # Classifier scores are P(like) probabilities in [0, 1].
+    assert all(0.0 <= s <= 1.0 for s in body["scores"])
+    # The model learned the preference: the liked winter outfit outscores the
+    # disliked summer one.
+    assert body["scores"][0] > body["scores"][1]
 
     # /health reports the trained model.
     h = client.get("/health").json()
