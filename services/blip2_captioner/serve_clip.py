@@ -25,9 +25,13 @@ from clip_heads import ClipAttr
 
 # Comma-separated dirs: e.g. "./clip_attr_model,./clip_attr_dfmm" — the first has
 # category/subcategory/formality heads, the second adds pattern/fabric/etc. Both
-# share one frozen CLIP encoder (loaded once).
+# share one frozen CLIP encoder (loaded once). Defaults to both committed
+# head-sets: clip_attr_model (category/subcategory/formality) + clip_attr_dfmm
+# (pattern/fabric/sleeve/neckline). Override with BLIP2_MODEL_DIR.
+_HERE = os.path.dirname(__file__)
 MODEL_DIR = os.environ.get(
-    "BLIP2_MODEL_DIR", os.path.join(os.path.dirname(__file__), "clip_attr_model")
+    "BLIP2_MODEL_DIR",
+    f"{os.path.join(_HERE, 'clip_attr_model')},{os.path.join(_HERE, 'clip_attr_dfmm')}",
 )
 TOKEN = os.environ.get("BLIP2_ENDPOINT_TOKEN", "")
 
@@ -41,7 +45,10 @@ def _load():
     if _model is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         _model = ClipAttr(device=device)
-        _sets = [_model.load_head_set(d.strip()) for d in MODEL_DIR.split(",") if d.strip()]
+        # Load each configured head-set that actually exists on disk, so a missing
+        # optional set (e.g. clip_attr_dfmm) degrades instead of crashing serving.
+        dirs = [d.strip() for d in MODEL_DIR.split(",") if d.strip() and os.path.isdir(d.strip())]
+        _sets = [_model.load_head_set(d) for d in dirs]
     return _model, _sets
 
 

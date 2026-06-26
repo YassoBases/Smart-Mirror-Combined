@@ -18,7 +18,8 @@ shapes stay aligned.
 - **Cloud (spec):** fine-tune `blip2-opt-2.7b` (needs 12–16 GB) → `serve.py`.
 - **Local (fits a 6 GB GPU):** frozen CLIP encoder + per-attribute classification
   heads → `serve_clip.py`. Trains in minutes; verified end-to-end on an RTX 3060
-  (category 34%→92.7%). Use this when you can't access a big cloud GPU. Details:
+  (category 98.3%, see "Shipped local model" below). Use this when you can't
+  access a big cloud GPU. Details:
   [docs/wardrobe/09_live_validation.md](../../docs/wardrobe/09_live_validation.md).
 
 ## Files
@@ -88,6 +89,49 @@ With this set, the upload pipeline ([02/03 docs](../../docs/wardrobe/03_items_pi
 uses real predictions and returns `aiAttributesAvailable: true`. Until then the
 backend's stub fallback runs and the feature still works (just with conservative
 defaults the user confirms/edits).
+
+## Shipped local model (CLIP heads — ready to serve)
+
+Two pre-trained head-sets are committed so `serve_clip.py` works out of the box
+on a 6 GB GPU (only the frozen CLIP encoder, ~0.6 GB VRAM, is downloaded at run
+time; the trained heads are tiny — ~5 MB total):
+
+- `clip_attr_model/` — category / subcategory / formality
+  (trained on `ashraq/fashion-product-images-small`).
+- `clip_attr_dfmm/` — pattern / fabric / sleeveLength / neckline
+  (trained on the DFMM HF mirror via `train_clip_heads_dfmm_hf.py`).
+
+Measured held-out accuracy (RTX 3060 Laptop, 6 GB):
+
+| attribute | trained acc. | notes |
+|---|---|---|
+| category | **98.3%** | drives the closet tabs |
+| subcategory (40-class) | **84.2%** | |
+| formality | **87.5%** | |
+| sleeveLength | **92.9%** | |
+| pattern | **84.0%** | |
+| fabric | **81.2%** | cotton-dominant; rare classes weaker |
+| neckline | **71.8%** | |
+
+`serve_clip.py` defaults to loading **both** head-sets (override with
+`BLIP2_MODEL_DIR="dirA,dirB"`); a missing optional set is skipped, not fatal.
+Run it and point the backend at it exactly like `serve.py`:
+
+```bash
+cd services/blip2_captioner
+pip install -r requirements.txt            # + torch with CUDA for GPU
+uvicorn serve_clip:app --host 0.0.0.0 --port 8003
+```
+
+```
+# backend/.env
+BLIP2_ENDPOINT_URL=http://<host>:8003/     # serve_clip POST /
+BLIP2_ENDPOINT_TOKEN=<optional shared secret>
+```
+
+Retrain/extend: `python train_clip_heads.py ...` (category set) and
+`python train_clip_heads_dfmm_hf.py --weight sqrt ...` (DFMM set; `--weight sqrt`
+trades a little overall accuracy for better rare-class recall on fabric/neckline).
 
 ## Output contract (what `serve.py` returns)
 
