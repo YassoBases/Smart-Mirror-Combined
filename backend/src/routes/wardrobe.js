@@ -40,6 +40,7 @@ const ENDPOINTS = [
   { method: "get",    jwt: "/body-photo",          mirror: "/body-photo",                handler: "getBodyPhoto" },
 
   { method: "post",   jwt: "/outfit/suggest",      mirror: "/outfit/suggest",            handler: "suggestOutfit" },
+  { method: "post",   jwt: "/outfit/generate",     mirror: "/outfit/generate",           handler: "generateOutfit" },
   { method: "post",   jwt: "/outfit/render",       mirror: "/outfit/render",             handler: "renderOutfit" },
   { method: "post",   jwt: "/outfit/feedback",     mirror: "/outfit/feedback",           handler: "postFeedback" },
   { method: "get",    jwt: "/outfit/feedback",     mirror: "/outfit/feedback",           handler: "getFeedback" },

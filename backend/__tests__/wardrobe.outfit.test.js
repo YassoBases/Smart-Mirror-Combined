@@ -4,11 +4,14 @@
 jest.mock("../lib/anthropic", () => ({
   isConfigured: jest.fn(() => true),
   suggestOutfits: jest.fn(),
+  generateOutfits: jest.fn(),
   MODEL: "test-model",
 }));
 jest.mock("../lib/replicate", () => ({
   isConfigured: jest.fn(() => false),
+  isImageGenConfigured: jest.fn(() => false),
   tryOn: jest.fn(),
+  generateImage: jest.fn(),
 }));
 jest.mock("../lib/pref_client", () => ({
   score: jest.fn(async () => null),
@@ -90,6 +93,98 @@ describe("outfit/suggest", () => {
     prefClient.score.mockResolvedValueOnce([0.1, 0.9]);
     const res = await auth(request(app).post(`${base()}/outfit/suggest`)).send({ count: 2 });
     expect(res.body.candidates[0].itemIds).toEqual([bottomId]);
+  });
+
+  test("threads the chosen occasion into context", async () => {
+    const topId = await makeItem("top");
+    const bottomId = await makeItem("bottom");
+    anthropic.suggestOutfits.mockResolvedValueOnce({
+      candidates: [{ itemIds: [topId, bottomId], reasoning: "r", confidence: 0.9 }],
+    });
+    const res = await auth(request(app).post(`${base()}/outfit/suggest`)).send({
+      count: 1,
+      occasion: "formal",
+    });
+    expect(res.status).toBe(200);
+    // The stylist receives the occasion in its context...
+    const arg = anthropic.suggestOutfits.mock.calls[0][0];
+    expect(arg.context.occasion).toBe("formal");
+    // ...and it is echoed back so the app can show it / store it in feedback.
+    expect(res.body.context.occasion).toBe("formal");
+  });
+});
+
+describe("outfit/generate", () => {
+  test("invents outfits with shopping links; no image when gen unconfigured", async () => {
+    anthropic.generateOutfits.mockResolvedValueOnce({
+      candidates: [
+        {
+          items: [
+            {
+              category: "top",
+              subcategory: "henley",
+              primaryColor: "#223344",
+              description: "navy waffle henley",
+              imagePrompt: "navy waffle henley",
+            },
+          ],
+          reasoning: "Layered for a cool evening.",
+          confidence: 0.8,
+        },
+      ],
+    });
+    const res = await auth(request(app).post(`${base()}/outfit/generate`)).send({
+      count: 1,
+      occasion: "casual",
+    });
+    expect(res.status).toBe(200);
+    expect(anthropic.generateOutfits).toHaveBeenCalledTimes(1);
+    const item = res.body.candidates[0].items[0];
+    expect(item.searchUrl).toContain("tbm=shop");
+    expect(item.searchUrl.toLowerCase()).toContain("navy");
+    expect(item.imageUrl).toBeNull(); // image gen unconfigured -> concept only
+    expect(res.body.context).toHaveProperty("season");
+  });
+
+  test("503 when the stylist is not configured", async () => {
+    anthropic.isConfigured.mockReturnValueOnce(false);
+    const res = await auth(request(app).post(`${base()}/outfit/generate`)).send({});
+    expect(res.status).toBe(503);
+  });
+});
+
+describe("generated-outfit feedback", () => {
+  test("accepts item attributes (no ids) and trains on them", async () => {
+    const h = await seedHousehold("Gen");
+    const tk = tokenFor(h);
+    const pid = await seedProfile(h.householdId, "Gina");
+    const a = (r) => r.set("Authorization", `Bearer ${tk}`);
+    const genItem = {
+      category: "top",
+      subcategory: "henley",
+      primaryColor: "#223344",
+      pattern: "solid",
+      formality: 2,
+      warmth: 2,
+      seasons: ["spring"],
+    };
+    for (let i = 0; i < 10; i++) {
+      const res = await a(
+        request(app).post(`/api/profiles/${pid}/outfit/feedback`),
+      ).send({
+        items: [genItem],
+        rating: i % 2 === 0 ? "up" : "down",
+        reasoningShown: "because",
+        context: { season: "spring", occasion: "casual" },
+      });
+      expect(res.status).toBe(200);
+    }
+    await new Promise((r) => setTimeout(r, 20));
+    expect(prefClient.train).toHaveBeenCalledWith(pid, expect.any(Array));
+    const samples = prefClient.train.mock.calls[0][1];
+    expect(samples.length).toBeGreaterThan(0);
+    expect(samples[0].items.length).toBeGreaterThan(0);
+    expect(samples[0].items[0]).toHaveProperty("category", "top");
   });
 });
 

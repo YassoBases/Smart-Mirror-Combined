@@ -26,6 +26,9 @@ export function useWardrobeSession() {
   const [renderUrl, setRenderUrl] = useState(null);
   const [fromCache, setFromCache] = useState(false);
   const [error, setError] = useState(null);
+  const [occasion, setOccasion] = useState('any');
+  // 'closet' = suggest from wardrobe (supports VTON); 'generated' = invented ideas.
+  const [mode, setMode] = useState('closet');
   const busy = useRef(false);
 
   const current = candidates[index] || null;
@@ -37,6 +40,7 @@ export function useWardrobeSession() {
     setRenderUrl(null);
     setFromCache(false);
     setError(null);
+    setMode('closet');
   }, []);
 
   const invoke = useCallback(async () => {
@@ -47,7 +51,7 @@ export function useWardrobeSession() {
     try {
       const [itemsRes, suggestRes] = await Promise.all([
         wardrobeApi.listItems(),
-        wardrobeApi.suggest(3),
+        wardrobeApi.suggest(3, occasion),
       ]);
       const map = {};
       for (const it of itemsRes.items || []) map[it.id] = it;
@@ -68,7 +72,35 @@ export function useWardrobeSession() {
     } finally {
       busy.current = false;
     }
-  }, []);
+  }, [occasion]);
+
+  // Invent brand-new outfit ideas (not from the closet).
+  const generate = useCallback(async () => {
+    if (busy.current) return;
+    busy.current = true;
+    setError(null);
+    setMode('generated');
+    setState(STATES.LOADING);
+    try {
+      const res = await wardrobeApi.generate(3, occasion);
+      setContext(res.context || null);
+      const cands = res.candidates || [];
+      setCandidates(cands);
+      setIndex(0);
+      setState(cands.length ? STATES.BOARD : STATES.IDLE);
+      if (!cands.length) setError('Could not generate outfits right now.');
+    } catch (err) {
+      setError(
+        err.status === 503
+          ? 'Outfit generation is not configured on the mirror.'
+          : err.message || 'Could not generate outfits.',
+      );
+      setState(STATES.IDLE);
+      setMode('closet');
+    } finally {
+      busy.current = false;
+    }
+  }, [occasion]);
 
   const nextOutfit = useCallback(() => {
     setState((s) => {
@@ -106,7 +138,9 @@ export function useWardrobeSession() {
       if (!current) return;
       try {
         await wardrobeApi.feedback({
-          itemIds: current.itemIds,
+          // Closet outfits carry itemIds; generated outfits carry item attrs.
+          itemIds: mode === 'generated' ? undefined : current.itemIds,
+          items: mode === 'generated' ? current.items : undefined,
           rating,
           reasoningShown: current.reasoning,
           context,
@@ -117,7 +151,7 @@ export function useWardrobeSession() {
       }
       reset();
     },
-    [current, context, reset],
+    [current, context, mode, reset],
   );
 
   const feedbackUp = useCallback(() => sendFeedback('up'), [sendFeedback]);
@@ -145,6 +179,8 @@ export function useWardrobeSession() {
     renderUrl,
     fromCache,
     error,
-    actions: { invoke, nextOutfit, renderVton, markVtonReady, feedbackUp, feedbackDown, dismiss },
+    occasion,
+    mode,
+    actions: { invoke, generate, nextOutfit, renderVton, markVtonReady, feedbackUp, feedbackDown, dismiss, setOccasion },
   };
 }

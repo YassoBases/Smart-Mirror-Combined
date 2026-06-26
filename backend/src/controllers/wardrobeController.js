@@ -19,6 +19,7 @@ const {
   itemPatchSchema,
   itemListQuerySchema,
   suggestSchema,
+  generateSchema,
   renderSchema,
   feedbackSchema,
   feedbackListQuerySchema,
@@ -152,12 +153,14 @@ function itemMetadata(row) {
 }
 
 // Deterministic local fallback when Claude is unavailable: pair the most recent
-// top with the most recent bottom, add outerwear when it's cold.
+// top with the most recent bottom, always add footwear when available, and add
+// outerwear when it's cold.
 function localSuggest(items, context, count) {
   const byCat = (c) => items.filter((i) => i.category === c);
   const tops = byCat("top");
   const bottoms = byCat("bottom");
   const outer = byCat("outerwear");
+  const footwear = byCat("footwear");
   const candidates = [];
   const cold = typeof context.temperature === "number" && context.temperature < 12;
 
@@ -169,6 +172,12 @@ function localSuggest(items, context, count) {
     let reasoning = `Pairs the ${top.subcategory || "top"} with the ${
       bottom.subcategory || "bottom"
     } for ${context.season} ${context.timeOfDay}.`;
+    // Always finish the look with footwear when the closet has some.
+    if (footwear.length) {
+      const shoe = footwear[i % footwear.length];
+      ids.push(shoe.id);
+      reasoning += ` Finished with the ${shoe.subcategory || "footwear"}.`;
+    }
     if (cold && outer[0]) {
       ids.push(outer[0].id);
       reasoning += ` Added the ${outer[0].subcategory || "outerwear"} for the cool ${
@@ -182,14 +191,18 @@ function localSuggest(items, context, count) {
 
 async function suggestOutfit(req, res, next) {
   try {
-    const { count = 3 } = validate(suggestSchema, req.body || {});
+    const { count = 3, occasion } = validate(suggestSchema, req.body || {});
     const profileId = req.wardrobeProfileId;
     const db = await getDb();
 
     const rows = await wardrobeDb.listItems(db, profileId, {});
     const validIds = new Set(rows.map((r) => r.id));
     const metadata = rows.map(itemMetadata);
-    const context = await contextLib.getContext();
+    // Merge the user-chosen occasion into context so it reaches the stylist
+    // prompt, the preference ranker, and (echoed back) the stored feedback.
+    const baseContext = await contextLib.getContext();
+    const context =
+        occasion && occasion !== "any" ? { ...baseContext, occasion } : baseContext;
 
     let candidates;
     if (anthropicClient.isConfigured() && metadata.length > 0) {
@@ -344,6 +357,106 @@ async function renderOutfit(req, res, next) {
   }
 }
 
+// ── Outfit generation (new ideas, not from the closet) ────────────────────────
+
+// Builds a Google Shopping search URL from a free-text item description so the
+// phone can open real "where to buy" results (no product API/key needed).
+function shoppingSearchUrl(item) {
+  const q =
+    (item.description && item.description.trim()) ||
+    [item.primaryColor, item.subcategory || item.category]
+      .filter(Boolean)
+      .join(" ");
+  return `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(q || "outfit")}`;
+}
+
+// Generates a preview image for one item and stores it under the profile's
+// generated/ dir, cached by prompt hash. Returns the served URL, or null when
+// image generation is unavailable/fails (the feature degrades to concept cards).
+async function generateItemImage(req, profileId, imagePrompt, apiToken, model) {
+  if (!imagePrompt) return null;
+  try {
+    const dir = wardrobeDb.ensureDir(wardrobeDb.generatedDir(profileId));
+    const filename = `${crypto.createHash("md5").update(imagePrompt).digest("hex")}.jpg`;
+    const dest = path.join(dir, filename);
+    if (!fs.existsSync(dest)) {
+      const url = await replicate.generateImage({
+        prompt: `${imagePrompt}, product photo, plain white background, no person`,
+        apiToken,
+        model,
+      });
+      const r = await fetch(url);
+      fs.writeFileSync(dest, Buffer.from(await r.arrayBuffer()));
+    }
+    return `${serverRoot(req)}/wardrobe/${profileId}/generated/${filename}`;
+  } catch (err) {
+    console.warn("[wardrobe] generate image failed:", err.message);
+    return null;
+  }
+}
+
+async function generateOutfit(req, res, next) {
+  try {
+    const { count = 3, occasion } = validate(generateSchema, req.body || {});
+    const profileId = req.wardrobeProfileId;
+    const db = await getDb();
+
+    if (!anthropicClient.isConfigured()) {
+      return res
+        .status(503)
+        .json({ error: "Outfit generation is not configured on this server." });
+    }
+
+    const baseContext = await contextLib.getContext();
+    const context =
+        occasion && occasion !== "any" ? { ...baseContext, occasion } : baseContext;
+
+    let candidates;
+    try {
+      const out = await anthropicClient.generateOutfits({ context, count });
+      candidates = Array.isArray(out.candidates) ? out.candidates : [];
+    } catch (err) {
+      console.warn("[wardrobe] generate failed:", err.message);
+      return res.status(502).json({ error: "Could not generate outfits right now." });
+    }
+
+    // Render a preview image per item and attach a shopping link. Image gen is
+    // best-effort — items keep their attributes + link even if no image returns.
+    const apiToken = await settings.getSetting("replicate_api_token", process.env.REPLICATE_API_TOKEN);
+    const model = await settings.getSetting("replicate_txt2img_model", process.env.REPLICATE_TXT2IMG_MODEL);
+    const canImage = !!apiToken || replicate.isImageGenConfigured();
+
+    for (const cnd of candidates) {
+      cnd.items = Array.isArray(cnd.items) ? cnd.items : [];
+      for (const item of cnd.items) {
+        item.searchUrl = shoppingSearchUrl(item);
+        item.imageUrl = canImage
+          ? await generateItemImage(req, profileId, item.imagePrompt, apiToken, model)
+          : null;
+      }
+    }
+
+    // Re-rank generated candidates by the profile's learned style (attribute-based
+    // ranker — no closet ids needed).
+    try {
+      const scoreInput = candidates.map((cnd) => ({ item_ids: [], items: cnd.items }));
+      const scores = await prefClient.score(profileId, scoreInput, context);
+      if (Array.isArray(scores) && scores.length === candidates.length) {
+        candidates = candidates
+          .map((cnd, i) => ({ cnd, s: scores[i] }))
+          .sort((a, b) => b.s - a.s)
+          .map((x) => x.cnd);
+      }
+    } catch (err) {
+      console.warn("[wardrobe] generate re-rank failed:", err.message);
+    }
+
+    res.json({ candidates, context });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ── Feedback ──────────────────────────────────────────────────────────────────
 
 // Train at 10, 50, 100, then every 100 feedback rows.
@@ -362,11 +475,17 @@ async function buildTrainingSamples(db, profileId) {
   const metaById = new Map(rows.map((r) => [r.id, itemMetadata(r)]));
   const feedback = await wardrobeDb.listFeedback(db, profileId, { limit: 1000, offset: 0 });
   return feedback
-    .map((fb) => ({
-      items: (fb.itemIds || []).map((id) => metaById.get(id)).filter(Boolean),
-      context: fb.context || {},
-      label: fb.rating === "up" ? 1 : 0,
-    }))
+    .map((fb) => {
+      // Closet feedback resolves ids → attributes; generated feedback carries the
+      // item attributes directly in items_snapshot. Either feeds the ranker.
+      const closetItems = (fb.itemIds || []).map((id) => metaById.get(id)).filter(Boolean);
+      const items = closetItems.length > 0 ? closetItems : fb.itemsSnapshot || [];
+      return {
+        items,
+        context: fb.context || {},
+        label: fb.rating === "up" ? 1 : 0,
+      };
+    })
     .filter((s) => s.items.length > 0);
 }
 
@@ -377,10 +496,12 @@ async function postFeedback(req, res, next) {
     const db = await getDb();
 
     await wardrobeDb.insertFeedback(db, profileId, {
-      itemIds: body.itemIds,
+      itemIds: body.itemIds || [],
       context: body.context,
       rating: body.rating,
       reasoningShown: body.reasoningShown,
+      // Generated-outfit feedback carries item attributes (no closet ids).
+      itemsSnapshot: body.items && body.items.length > 0 ? body.items : null,
     });
 
     const total = await wardrobeDb.countFeedback(db, profileId);
@@ -478,6 +599,7 @@ module.exports = {
   postBodyPhoto,
   getBodyPhoto,
   suggestOutfit,
+  generateOutfit,
   renderOutfit,
   postFeedback,
   getFeedback,

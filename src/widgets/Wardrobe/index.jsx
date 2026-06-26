@@ -9,13 +9,17 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useWardrobeSession, STATES } from './useWardrobeSession';
 import { createGestureRecognizer } from './gestureMap';
 import OutfitBoard from './OutfitBoard';
+import GeneratedBoard from './GeneratedBoard';
 import VtonView from './VtonView';
 import ReasoningCard from './ReasoningCard';
 import FeedbackHint from './FeedbackHint';
 
+const OCCASIONS = ['any', 'casual', 'smart casual', 'business', 'formal', 'sport', 'party'];
+
 export default function WardrobeWidget() {
-  const { state, current, index, candidates, itemsById, context, renderUrl, fromCache, error, actions } =
+  const { state, current, index, candidates, itemsById, context, renderUrl, fromCache, error, occasion, mode, actions } =
     useWardrobeSession();
+  const isGenerated = mode === 'generated';
 
   // Bind hands-free gestures to actions; only active gestures fire per state.
   useEffect(() => {
@@ -55,14 +59,39 @@ export default function WardrobeWidget() {
       <div className="relative flex-1 mt-3">
         {state === STATES.IDLE && (
           <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
-            <p className="text-sm text-white/70">Get an outfit suggestion from your wardrobe.</p>
-            <button
-              type="button"
-              onClick={actions.invoke}
-              className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm hover:bg-white/20"
-            >
-              Suggest an outfit
-            </button>
+            <p className="text-sm text-white/70">Pick an occasion, then style from your closet or generate a new look.</p>
+            <div className="flex flex-wrap items-center justify-center gap-1.5 max-w-[18rem]">
+              {OCCASIONS.map((o) => (
+                <button
+                  key={o}
+                  type="button"
+                  onClick={() => actions.setOccasion(o)}
+                  className={`rounded-full px-2.5 py-1 text-[11px] border ${
+                    occasion === o
+                      ? 'border-white/60 bg-white/20 text-white'
+                      : 'border-white/15 bg-white/5 text-white/60 hover:bg-white/10'
+                  }`}
+                >
+                  {o}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={actions.invoke}
+                className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm hover:bg-white/20"
+              >
+                From my closet
+              </button>
+              <button
+                type="button"
+                onClick={actions.generate}
+                className="rounded-lg border border-fuchsia-300/30 bg-fuchsia-400/10 px-4 py-2 text-sm text-fuchsia-100 hover:bg-fuchsia-400/20"
+              >
+                Generate new outfit
+              </button>
+            </div>
             <p className="text-[11px] text-white/40">Or hold an open palm to the mirror</p>
             {error && <p className="text-[11px] text-rose-300/80">{error}</p>}
           </div>
@@ -76,15 +105,24 @@ export default function WardrobeWidget() {
         )}
 
         {showBoard && current && (
-          <div className="h-full flex flex-col">
+          <div className="h-full flex flex-col overflow-y-auto">
             <AnimatePresence mode="wait">
-              <OutfitBoard
-                key={index}
-                candidate={current}
-                itemsById={itemsById}
-                index={index}
-                total={candidates.length}
-              />
+              {isGenerated ? (
+                <GeneratedBoard
+                  key={index}
+                  candidate={current}
+                  index={index}
+                  total={candidates.length}
+                />
+              ) : (
+                <OutfitBoard
+                  key={index}
+                  candidate={current}
+                  itemsById={itemsById}
+                  index={index}
+                  total={candidates.length}
+                />
+              )}
             </AnimatePresence>
 
             <ReasoningCard
@@ -103,13 +141,32 @@ export default function WardrobeWidget() {
                 >
                   Next
                 </button>
-                <button
-                  type="button"
-                  onClick={actions.renderVton}
-                  className="flex-1 rounded-lg border border-sky-300/30 bg-sky-400/10 px-3 py-2 text-sm text-sky-100 hover:bg-sky-400/20"
-                >
-                  Try it on
-                </button>
+                {isGenerated ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={actions.feedbackDown}
+                      className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/15"
+                    >
+                      👎
+                    </button>
+                    <button
+                      type="button"
+                      onClick={actions.feedbackUp}
+                      className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/15"
+                    >
+                      👍
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={actions.renderVton}
+                    className="flex-1 rounded-lg border border-sky-300/30 bg-sky-400/10 px-3 py-2 text-sm text-sky-100 hover:bg-sky-400/20"
+                  >
+                    Try it on
+                  </button>
+                )}
               </div>
             )}
           </div>

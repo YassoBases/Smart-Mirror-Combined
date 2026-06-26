@@ -11,10 +11,20 @@ const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN || "";
 const REPLICATE_VTON_MODEL =
   process.env.REPLICATE_VTON_MODEL ||
   "cuuupid/idm-vton:c871bb9b046607b680449ecbae55fd8c6d945e0a1948644bf2361b3d021d3ff4";
+// Text-to-image model for generated-garment previews (SDXL by default).
+const REPLICATE_TXT2IMG_MODEL =
+  process.env.REPLICATE_TXT2IMG_MODEL ||
+  "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc";
 
 const API_BASE = "https://api.replicate.com/v1";
 
 function isConfigured() {
+  return !!REPLICATE_API_TOKEN;
+}
+
+// Image generation needs the same token; gated separately so the generate-outfit
+// feature can fall back to concept-only cards when it is unavailable.
+function isImageGenConfigured() {
   return !!REPLICATE_API_TOKEN;
 }
 
@@ -97,4 +107,59 @@ async function tryOn({ humanImageUrl, garmentImageUrl, garmentDes, apiToken, mod
   return out;
 }
 
-module.exports = { tryOn, isConfigured, parseModel, REPLICATE_VTON_MODEL };
+/**
+ * Generates a single product-style image from a text prompt (text-to-image).
+ * @param {{ prompt:string, apiToken?:string, model?:string }} args
+ * @returns {Promise<string>} output image URL
+ */
+async function generateImage({ prompt, apiToken, model }) {
+  const token = apiToken || REPLICATE_API_TOKEN;
+  const modelRef = model || REPLICATE_TXT2IMG_MODEL;
+  if (!token) {
+    throw Object.assign(new Error("REPLICATE_API_TOKEN not configured"), {
+      code: "REPLICATE_UNSET",
+    });
+  }
+  const { version } = parseModel(modelRef);
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+
+  const createRes = await fetch(`${API_BASE}/predictions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      version,
+      input: {
+        prompt,
+        width: 768,
+        height: 1024,
+        num_outputs: 1,
+      },
+    }),
+  });
+  const created = await createRes.json();
+  if (!createRes.ok) {
+    throw new Error(
+      `Replicate create failed (${createRes.status}): ${
+        created?.detail || created?.title || "unknown error"
+      }`,
+    );
+  }
+
+  const done = await poll(created.urls.get, headers);
+  const out = Array.isArray(done.output) ? done.output[0] : done.output;
+  if (!out) throw new Error("Replicate returned no output image");
+  return out;
+}
+
+module.exports = {
+  tryOn,
+  generateImage,
+  isConfigured,
+  isImageGenConfigured,
+  parseModel,
+  REPLICATE_VTON_MODEL,
+  REPLICATE_TXT2IMG_MODEL,
+};

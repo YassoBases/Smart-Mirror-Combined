@@ -34,9 +34,24 @@ const itemListQuerySchema = z
   })
   .strip();
 
+// Occasion / formality target for outfit selection. Free-ish string (the
+// stylist prompt interprets it); kept permissive so "any" and new values pass.
+const OCCASION = z.string().max(40);
+
 // POST /outfit/suggest
 const suggestSchema = z
-  .object({ count: z.number().int().min(1).max(10).optional() })
+  .object({
+    count: z.number().int().min(1).max(10).optional(),
+    occasion: OCCASION.optional(),
+  })
+  .strip();
+
+// POST /outfit/generate — invent new outfits (not from the closet).
+const generateSchema = z
+  .object({
+    count: z.number().int().min(1).max(6).optional(),
+    occasion: OCCASION.optional(),
+  })
   .strip();
 
 // POST /outfit/render
@@ -44,15 +59,33 @@ const renderSchema = z
   .object({ itemIds: z.array(z.number().int().positive()).min(1).max(10) })
   .strip();
 
-// POST /outfit/feedback
+// Attribute snapshot of a generated item, used for generated-outfit feedback.
+const genItemSchema = z
+  .object({
+    category: z.string().max(40).optional(),
+    subcategory: z.string().max(120).optional(),
+    primaryColor: z.string().max(40).optional().nullable(),
+    pattern: z.string().max(40).optional(),
+    formality: z.number().int().min(1).max(5).optional(),
+    warmth: z.number().int().min(1).max(5).optional(),
+    seasons: z.array(SEASON).max(4).optional(),
+  })
+  .strip();
+
+// POST /outfit/feedback — accepts closet itemIds OR generated item attributes.
 const feedbackSchema = z
   .object({
-    itemIds: z.array(z.number().int().positive()).min(1).max(10),
+    itemIds: z.array(z.number().int().positive()).max(10).optional(),
+    items: z.array(genItemSchema).max(10).optional(),
     rating: RATING,
     reasoningShown: z.string().max(2000).optional().nullable(),
     context: z.record(z.string(), z.unknown()).optional().nullable(),
   })
-  .strip();
+  .strip()
+  .refine(
+    (d) => (d.itemIds && d.itemIds.length > 0) || (d.items && d.items.length > 0),
+    { message: "either itemIds or items is required" },
+  );
 
 // GET /outfit/feedback query
 const feedbackListQuerySchema = z
@@ -82,6 +115,7 @@ module.exports = {
   itemPatchSchema,
   itemListQuerySchema,
   suggestSchema,
+  generateSchema,
   renderSchema,
   feedbackSchema,
   feedbackListQuerySchema,

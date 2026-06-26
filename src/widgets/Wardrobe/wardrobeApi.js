@@ -28,11 +28,26 @@ export const wardrobeApi = {
   // All items (id -> attributes/thumbnails), used to render the flat-lay board.
   listItems: () => getJson(`${base()}/items?mid=${mid()}`),
 
-  suggest: (count = 3) =>
+  suggest: (count = 3, occasion = null) =>
     getJson(`${base()}/outfit/suggest?mid=${mid()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count }),
+      body: JSON.stringify({
+        count,
+        ...(occasion && occasion !== 'any' ? { occasion } : {}),
+      }),
+    }),
+
+  // Invent brand-new outfit ideas (not from the closet). Items carry imageUrl +
+  // searchUrl from the backend.
+  generate: (count = 3, occasion = null) =>
+    getJson(`${base()}/outfit/generate?mid=${mid()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        count,
+        ...(occasion && occasion !== 'any' ? { occasion } : {}),
+      }),
     }),
 
   render: (itemIds) =>
@@ -42,11 +57,12 @@ export const wardrobeApi = {
       body: JSON.stringify({ itemIds }),
     }),
 
-  feedback: ({ itemIds, rating, reasoningShown, context }) =>
+  // Feedback for closet outfits (itemIds) or generated outfits (items attrs).
+  feedback: ({ itemIds, items, rating, reasoningShown, context }) =>
     getJson(`${base()}/outfit/feedback?mid=${mid()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ itemIds, rating, reasoningShown, context }),
+      body: JSON.stringify({ itemIds, items, rating, reasoningShown, context }),
     }),
 
   context: () => getJson(`${base()}/context?mid=${mid()}`),

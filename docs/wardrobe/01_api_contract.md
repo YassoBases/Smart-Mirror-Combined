@@ -58,8 +58,20 @@ GET    /profiles/:profileId/body-photo
 
 ```
 POST   /profiles/:profileId/outfit/suggest
-        body: { count? }   (default 3)
+        body: { count?, occasion? }   (default count 3; occasion e.g.
+               "casual"|"smart casual"|"business"|"formal"|"sport"|"party",
+               "any"/omitted = no preference)
         -> 200 { candidates: [{ itemIds:[int], reasoning, confidence }], context }
+           (context now also carries `occasion` when one was given)
+
+POST   /profiles/:profileId/outfit/generate
+        body: { count?, occasion? }   (invent NEW ideas, not from the closet)
+        -> 200 { candidates: [{ items:[{ category, subcategory, primaryColor,
+                 pattern, formality, warmth, seasons, description, imageUrl,
+                 searchUrl }], reasoning, confidence }], context }
+           imageUrl is null when image generation is unconfigured (concept-only);
+           searchUrl is a Google Shopping search link built from `description`.
+        -> 503 when the stylist (ANTHROPIC_API_KEY) is not configured.
 
 POST   /profiles/:profileId/outfit/render
         body: { itemIds:[int] }
@@ -71,10 +83,15 @@ POST   /profiles/:profileId/outfit/render
 ```
 POST   /profiles/:profileId/outfit/feedback
         body: { itemIds:[int], rating:"up"|"down", reasoningShown, context }
+              OR (for generated outfits, no closet ids):
+              { items:[{ category, subcategory, primaryColor, pattern,
+                 formality, warmth, seasons }], rating, reasoningShown, context }
         -> 200 { ok: true }
+        Either itemIds or items is required. Both kinds train the same
+        per-profile preference model (generated items via items_snapshot).
 
 GET    /profiles/:profileId/outfit/feedback?limit=&offset=
-        -> 200 { feedback: [ <feedbackRow>, ... ] }
+        -> 200 { feedback: [ <feedbackRow incl. itemsSnapshot>, ... ] }
 ```
 
 ### Context (weather/time/season)
@@ -106,6 +123,7 @@ DELETE /mirrors/wardrobe/items/:id?mid=<mirrorId>
 POST   /mirrors/wardrobe/body-photo?mid=<mirrorId>
 GET    /mirrors/wardrobe/body-photo?mid=<mirrorId>
 POST   /mirrors/wardrobe/outfit/suggest?mid=<mirrorId>
+POST   /mirrors/wardrobe/outfit/generate?mid=<mirrorId>
 POST   /mirrors/wardrobe/outfit/render?mid=<mirrorId>
 POST   /mirrors/wardrobe/outfit/feedback?mid=<mirrorId>
 GET    /mirrors/wardrobe/outfit/feedback?mid=<mirrorId>&limit=&offset=

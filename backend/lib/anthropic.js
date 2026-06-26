@@ -11,6 +11,11 @@ const {
   RESPONSE_SCHEMA,
   buildUserPrompt,
 } = require("./outfit_prompt");
+const {
+  GENERATE_SYSTEM_PROMPT,
+  GENERATE_RESPONSE_SCHEMA,
+  buildGenerateUserPrompt,
+} = require("./outfit_generate_prompt");
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 
@@ -58,4 +63,37 @@ async function suggestOutfits({ items, context, count = 3 }) {
   return { candidates: Array.isArray(parsed.candidates) ? parsed.candidates : [] };
 }
 
-module.exports = { suggestOutfits, isConfigured, MODEL };
+/**
+ * Asks Claude to INVENT brand-new outfit ideas (not from the closet). Each item
+ * carries attributes + a description + an imagePrompt for downstream rendering.
+ * @param {{ context: object, count: number }} args
+ * @returns {Promise<{candidates: {items:object[], reasoning:string, confidence:number}[]}>}
+ * @throws if the API key is unset or the call fails
+ */
+async function generateOutfits({ context, count = 3 }) {
+  const c = getClient();
+  if (!c) {
+    throw Object.assign(new Error("ANTHROPIC_API_KEY not configured"), {
+      code: "ANTHROPIC_UNSET",
+    });
+  }
+
+  const response = await c.messages.create({
+    model: MODEL,
+    max_tokens: 3072,
+    system: GENERATE_SYSTEM_PROMPT,
+    output_config: {
+      format: { type: "json_schema", schema: GENERATE_RESPONSE_SCHEMA },
+    },
+    messages: [
+      { role: "user", content: buildGenerateUserPrompt({ context, count }) },
+    ],
+  });
+
+  const textBlock = response.content.find((b) => b.type === "text");
+  if (!textBlock) throw new Error("Anthropic returned no text content");
+  const parsed = JSON.parse(textBlock.text);
+  return { candidates: Array.isArray(parsed.candidates) ? parsed.candidates : [] };
+}
+
+module.exports = { suggestOutfits, generateOutfits, isConfigured, MODEL };

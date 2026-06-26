@@ -93,6 +93,12 @@ async function initWardrobeSchema(db) {
   await db
     .run(`ALTER TABLE profiles ADD COLUMN body_photo_filename TEXT`)
     .catch(() => {});
+
+  // Feedback on GENERATED outfits has no closet item ids, so store a JSON
+  // snapshot of the generated items' attributes for training. Idempotent add.
+  await db
+    .run(`ALTER TABLE outfit_feedback ADD COLUMN items_snapshot TEXT`)
+    .catch(() => {});
 }
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
@@ -105,6 +111,9 @@ function bodyDir(profileId) {
 }
 function rendersDir(profileId) {
   return path.join(WARDROBE_DATA_DIR, String(profileId), "renders");
+}
+function generatedDir(profileId) {
+  return path.join(WARDROBE_DATA_DIR, String(profileId), "generated");
 }
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -270,17 +279,18 @@ async function getBodyPhotoFilename(db, profileId) {
 async function insertFeedback(
   db,
   profileId,
-  { itemIds, context, rating, reasoningShown, synthetic = 0 },
+  { itemIds, context, rating, reasoningShown, synthetic = 0, itemsSnapshot = null },
 ) {
   const result = await db.run(
-    `INSERT INTO outfit_feedback (profile_id, item_ids, context, rating, reasoning_shown, synthetic)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO outfit_feedback (profile_id, item_ids, context, rating, reasoning_shown, synthetic, items_snapshot)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     profileId,
     JSON.stringify(itemIds || []),
     context ? JSON.stringify(context) : null,
     rating,
     reasoningShown ?? null,
     synthetic ? 1 : 0,
+    itemsSnapshot ? JSON.stringify(itemsSnapshot) : null,
   );
   return result.lastID;
 }
@@ -301,6 +311,7 @@ async function listFeedback(db, profileId, { limit = 50, offset = 0 } = {}) {
     rating: r.rating,
     reasoningShown: r.reasoning_shown,
     synthetic: !!r.synthetic,
+    itemsSnapshot: parseJsonArray(r.items_snapshot),
     createdAt: r.created_at,
   }));
 }
@@ -376,6 +387,7 @@ module.exports = {
   itemDir,
   bodyDir,
   rendersDir,
+  generatedDir,
   ensureDir,
   // serialization
   serializeItem,
