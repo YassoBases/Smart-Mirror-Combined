@@ -27,6 +27,9 @@ router.post("/", authenticate, profileController.create);
 router.get("/", authenticate, profileController.list);
 router.get("/:id", authenticate, profileController.getOne);
 
+// Edit name/email
+router.patch("/:id", authenticate, profileController.update);
+
 // Delete profile
 router.delete("/:id", authenticate, profileController.remove);
 

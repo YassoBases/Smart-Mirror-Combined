@@ -5,23 +5,29 @@ const spotifyService = require('../services/spotifyService');
 const { pairSession, pairByCode } = require('../services/mirrorSync');
 const { authenticate } = require('../middleware/auth');
 const { sendToHousehold } = require('../services/pushService');
-const { getSetting, setSetting } = require('../services/settingsService');
+const { getSetting, setSetting, getSharedSettings, setSharedSettings } = require('../services/settingsService');
+const profileService = require('../services/profileService');
 
 // ── Integration settings (set from the mirror Settings UI) ───────────────────
 // Stores the Replicate API token (and optional VTON model + public base URL) in
 // the DB so they don't have to live in backend/.env. Unauthenticated like the
 // other mirror endpoints — a local/LAN read-write on the personal mirror. The
 // GET never returns the secret value, only whether it is configured.
+// Returns the full shared household settings. includeSecrets: the mirror's voice
+// assistant calls OpenAI directly in the browser, so it needs the raw key (this
+// is a local/LAN read on the personal mirror — same exposure as before). A legacy
+// `replicate` block is kept for back-compat.
+function withLegacy(s) {
+  return {
+    ...s,
+    replicate: { configured: !!s.replicateApiTokenConfigured, model: s.replicateModel || '' },
+    publicBaseUrl: s.publicBaseUrl || '',
+  };
+}
+
 router.get('/integrations', async (_req, res, next) => {
   try {
-    const token = await getSetting('replicate_api_token', process.env.REPLICATE_API_TOKEN || '');
-    res.json({
-      replicate: {
-        configured: !!token,
-        model: await getSetting('replicate_vton_model', process.env.REPLICATE_VTON_MODEL || ''),
-      },
-      publicBaseUrl: await getSetting('public_base_url', process.env.PUBLIC_BASE_URL || ''),
-    });
+    res.json(withLegacy(await getSharedSettings({ includeSecrets: true })));
   } catch (err) {
     next(err);
   }
@@ -29,25 +35,8 @@ router.get('/integrations', async (_req, res, next) => {
 
 router.post('/integrations', async (req, res, next) => {
   try {
-    const { replicateApiToken, replicateModel, publicBaseUrl } = req.body || {};
-    if (typeof replicateApiToken === 'string' && replicateApiToken.trim()) {
-      await setSetting('replicate_api_token', replicateApiToken.trim());
-    }
-    if (typeof replicateModel === 'string') {
-      await setSetting('replicate_vton_model', replicateModel.trim());
-    }
-    if (typeof publicBaseUrl === 'string') {
-      await setSetting('public_base_url', publicBaseUrl.trim());
-    }
-    const token = await getSetting('replicate_api_token', process.env.REPLICATE_API_TOKEN || '');
-    res.json({
-      ok: true,
-      replicate: {
-        configured: !!token,
-        model: await getSetting('replicate_vton_model', process.env.REPLICATE_VTON_MODEL || ''),
-      },
-      publicBaseUrl: await getSetting('public_base_url', process.env.PUBLIC_BASE_URL || ''),
-    });
+    await setSharedSettings(req.body || {});
+    res.json({ ok: true, ...withLegacy(await getSharedSettings({ includeSecrets: true })) });
   } catch (err) {
     next(err);
   }
@@ -156,6 +145,45 @@ router.delete('/active-profile', async (req, res, next) => {
     if (!profile) return res.status(404).json({ error: 'No active profile on this mirror' });
     await db.run('DELETE FROM profiles WHERE id = ?', profile.id);
     res.json({ ok: true, deletedProfileId: profile.id });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PATCH /api/mirrors/active-profile?mid=<mirrorId> ─────────────────────────
+// Edit the active profile's name/email FROM the mirror, persisting to the backend
+// so the phone app sees the change. No JWT (LAN mirror), like the other mid routes.
+router.patch('/active-profile', async (req, res, next) => {
+  try {
+    const mirrorId = req.query.mid;
+    if (!mirrorId) return res.status(400).json({ error: 'mid is required' });
+    const profile = await getActiveProfile(mirrorId);
+    if (!profile) return res.status(404).json({ error: 'No active profile on this mirror' });
+    const { name, email } = req.body || {};
+    if (name !== undefined && (!name || !String(name).trim())) {
+      return res.status(400).json({ error: 'Profile name cannot be empty' });
+    }
+    const updated = await profileService.updateProfile(profile.id, { name, email });
+    res.json({ profile: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PATCH /api/mirrors/active-profile/widgets?mid=<mirrorId> ─────────────────
+// Persist a widget-visibility change made on the mirror back to the backend.
+router.patch('/active-profile/widgets', async (req, res, next) => {
+  try {
+    const mirrorId = req.query.mid;
+    if (!mirrorId) return res.status(400).json({ error: 'mid is required' });
+    const profile = await getActiveProfile(mirrorId);
+    if (!profile) return res.status(404).json({ error: 'No active profile on this mirror' });
+    const { widgets } = req.body || {};
+    if (!widgets || typeof widgets !== 'object') {
+      return res.status(400).json({ error: 'widgets object is required' });
+    }
+    const updated = await profileService.updateWidgets(profile.id, widgets);
+    res.json({ profile: updated });
   } catch (err) {
     next(err);
   }

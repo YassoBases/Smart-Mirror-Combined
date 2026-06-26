@@ -9,7 +9,7 @@ const path = require("path");
 const { getDb } = require("../config/database");
 const wardrobeDb = require("../../db/wardrobe");
 const imageService = require("../services/wardrobeImageService");
-const anthropicClient = require("../../lib/anthropic");
+const aiClient = require("../../lib/openai");
 const replicate = require("../../lib/replicate");
 const prefClient = require("../../lib/pref_client");
 const contextLib = require("../../lib/context");
@@ -205,12 +205,12 @@ async function suggestOutfit(req, res, next) {
         occasion && occasion !== "any" ? { ...baseContext, occasion } : baseContext;
 
     let candidates;
-    if (anthropicClient.isConfigured() && metadata.length > 0) {
+    if ((await aiClient.isConfigured()) && metadata.length > 0) {
       try {
-        const out = await anthropicClient.suggestOutfits({ items: metadata, context, count });
+        const out = await aiClient.suggestOutfits({ items: metadata, context, count });
         candidates = out.candidates;
       } catch (err) {
-        console.warn("[wardrobe] Claude suggest failed, using local:", err.message);
+        console.warn("[wardrobe] OpenAI suggest failed, using local:", err.message);
         candidates = localSuggest(metadata, context, count);
       }
     } else {
@@ -401,7 +401,7 @@ async function generateOutfit(req, res, next) {
     const profileId = req.wardrobeProfileId;
     const db = await getDb();
 
-    if (!anthropicClient.isConfigured()) {
+    if (!(await aiClient.isConfigured())) {
       return res
         .status(503)
         .json({ error: "Outfit generation is not configured on this server." });
@@ -413,7 +413,7 @@ async function generateOutfit(req, res, next) {
 
     let candidates;
     try {
-      const out = await anthropicClient.generateOutfits({ context, count });
+      const out = await aiClient.generateOutfits({ context, count });
       candidates = Array.isArray(out.candidates) ? out.candidates : [];
     } catch (err) {
       console.warn("[wardrobe] generate failed:", err.message);

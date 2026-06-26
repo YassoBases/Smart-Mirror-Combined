@@ -17,6 +17,7 @@ const alertsRoutes     = require("./routes/alerts");
 const newsRoutes       = require("./routes/news");
 const provisioningRoutes = require("./routes/provisioning");
 const wardrobeRoutes = require("./routes/wardrobe");
+const settingsRoutes = require("./routes/settings");
 const { getByMirrorId } = require("./controllers/profileController");
 
 const app = express();
@@ -47,6 +48,8 @@ app.use("/admin/wardrobe", express.static(path.join(__dirname, "../../tools/acce
 app.use("/api/auth", authRoutes);
 app.use("/api/households", householdRoutes);
 app.use("/api/profiles", profileRoutes);
+// Household shared settings (keys + AI config) for the phone app (JWT).
+app.use("/api/settings", settingsRoutes);
 // Wardrobe (Flutter, JWT) — nested under each profile, e.g.
 // /api/profiles/:profileId/wardrobe/items. Mounted after profileRoutes; its
 // deeper paths never collide with the profiles router's /:id routes.

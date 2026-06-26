@@ -81,6 +81,25 @@ async function getProfile(id) {
   return profile;
 }
 
+async function updateProfile(profileId, { name, email } = {}) {
+  const db = await getDb();
+  const sets = [];
+  const args = [];
+  if (name !== undefined) {
+    sets.push("name = ?");
+    args.push(String(name).trim());
+  }
+  if (email !== undefined) {
+    sets.push("email = ?");
+    args.push(email ? String(email).trim() : null);
+  }
+  if (sets.length) {
+    args.push(profileId);
+    await db.run(`UPDATE profiles SET ${sets.join(", ")} WHERE id = ?`, ...args);
+  }
+  return getProfile(profileId);
+}
+
 async function deleteProfile(id) {
   const db = await getDb();
   await db.run("DELETE FROM profiles WHERE id = ?", id);
@@ -110,7 +129,14 @@ async function updateAiSettings(profileId, settings) {
   const db = await getDb();
   const profile = await getProfile(profileId);
   const current = profile.ai_settings ? JSON.parse(profile.ai_settings) : {};
-  const merged = { ...current, ...settings };
+  // A blank secret in a partial save must not wipe a stored one.
+  const incoming = { ...settings };
+  for (const k of ["apiKey", "elevenLabsKey"]) {
+    if (k in incoming && (incoming[k] == null || String(incoming[k]).trim() === "")) {
+      delete incoming[k];
+    }
+  }
+  const merged = { ...current, ...incoming };
   await db.run(
     "UPDATE profiles SET ai_settings = ? WHERE id = ?",
     JSON.stringify(merged),
@@ -125,6 +151,7 @@ module.exports = {
   getProfile,
   setMirrorId,
   getProfilesByMirrorId,
+  updateProfile,
   deleteProfile,
   updateWidgets,
   getAiSettings,

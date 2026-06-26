@@ -106,7 +106,27 @@ const Settings = () => {
 
   useEffect(() => {
     let cancelled = false;
-    backendApi.getIntegrations().then((data) => { if (!cancelled && data) setIntegrations(data); });
+    backendApi.getIntegrations().then((data) => {
+      if (cancelled || !data) return;
+      setIntegrations(data);
+      // Hydrate the AI-assistant config from the shared household settings so a
+      // key/model/voice set on the phone shows here and the voice assistant uses
+      // it (localStorage stays the runtime cache).
+      const fromBackend = {};
+      if (typeof data.openaiApiKey === 'string' && data.openaiApiKey) fromBackend.apiKey = data.openaiApiKey;
+      if (data.chatModel) fromBackend.chatModel = data.chatModel;
+      if (data.realtimeModel) fromBackend.realtimeModel = data.realtimeModel;
+      if (data.voice) fromBackend.voice = data.voice;
+      if (data.assistantName) fromBackend.name = data.assistantName;
+      if (typeof data.elevenLabsKey === 'string' && data.elevenLabsKey) fromBackend.elevenLabsKey = data.elevenLabsKey;
+      if (data.elevenLabsVoiceId) fromBackend.elevenLabsVoiceId = data.elevenLabsVoiceId;
+      if (typeof data.showRawTranscripts === 'boolean') fromBackend.showRawTranscripts = data.showRawTranscripts;
+      if (Object.keys(fromBackend).length) {
+        saveAiAssistantSettings(fromBackend);
+        setAiAssistantSettings(getAiAssistantSettings());
+        window.dispatchEvent(new Event('storage'));
+      }
+    });
     return () => { cancelled = true; };
   }, []);
 
@@ -178,6 +198,18 @@ const Settings = () => {
     window.dispatchEvent(new Event('storage'));
   };
 
+  // AI-assistant localStorage field -> shared (household) backend field.
+  const AI_TO_BACKEND = {
+    apiKey: 'openaiApiKey',
+    chatModel: 'chatModel',
+    realtimeModel: 'realtimeModel',
+    voice: 'voice',
+    name: 'assistantName',
+    elevenLabsKey: 'elevenLabsKey',
+    elevenLabsVoiceId: 'elevenLabsVoiceId',
+    showRawTranscripts: 'showRawTranscripts',
+  };
+
   const handleAiAssistantSettingChange = (key, value) => {
     saveAiAssistantSettings({ [key]: value });
     setAiAssistantSettings(prev => ({
@@ -188,6 +220,14 @@ const Settings = () => {
       }
     }));
     window.dispatchEvent(new Event('storage'));
+    // Persist to the shared household settings so the backend stylist + the
+    // phone app see the same value (single source of truth).
+    const backendField = AI_TO_BACKEND[key];
+    if (backendField) {
+      backendApi
+        .saveIntegrations({ [backendField]: value })
+        .catch((e) => console.warn('[Settings] sync AI setting failed:', e.message));
+    }
   };
 
   const handleGeneralSettingChange = (changes) => {

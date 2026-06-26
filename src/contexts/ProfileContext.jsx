@@ -122,6 +122,55 @@ export const ProfileProvider = ({ children }) => {
     return () => clearInterval(id);
   }, [mirrorId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Hydrate the household-level AI settings (single OpenAI key + model/voice,
+  // shared via the backend) into the localStorage runtime cache so the voice
+  // assistant uses the same key the phone set — even if Settings was never
+  // opened. Merge-only: never clobbers a stored value with empty.
+  useEffect(() => {
+    let cancelled = false;
+    let timer;
+    let lastHash = null;
+    const pull = async () => {
+      try {
+        const s = await backendApi.getIntegrations();
+        if (!cancelled && s) {
+          const ai = {
+            apiKey: s.openaiApiKey || '',
+            chatModel: s.chatModel || 'gpt-4o',
+            realtimeModel: s.realtimeModel || 'gpt-4o-realtime-preview-2024-12-17',
+            voice: s.voice || 'alloy',
+            name: s.assistantName || 'Mirror',
+            elevenLabsKey: s.elevenLabsKey || '',
+            elevenLabsVoiceId: s.elevenLabsVoiceId || '',
+            showRawTranscripts: !!s.showRawTranscripts,
+          };
+          const hash = JSON.stringify(ai);
+          if (hash !== lastHash) {
+            lastHash = hash;
+            const KEY = 'smartMirrorSettings';
+            const stored = JSON.parse(localStorage.getItem(KEY) || '{}');
+            const prev = (stored.aiAssistant && stored.aiAssistant.settings) || {};
+            stored.aiAssistant = {
+              enabled: (stored.aiAssistant && stored.aiAssistant.enabled) ?? true,
+              settingsVersion: 2,
+              settings: {
+                ...prev,
+                ...ai,
+                apiKey: ai.apiKey || prev.apiKey || '',
+                elevenLabsKey: ai.elevenLabsKey || prev.elevenLabsKey || '',
+              },
+            };
+            localStorage.setItem(KEY, JSON.stringify(stored));
+            window.dispatchEvent(new Event('storage'));
+          }
+        }
+      } catch (_) {}
+      if (!cancelled) timer = setTimeout(pull, 5000);
+    };
+    pull();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, []);
+
   return (
     <ProfileContext.Provider value={{ activeProfile, isLoading, lastSynced, mirrorId }}>
       {children}

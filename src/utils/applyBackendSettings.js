@@ -96,24 +96,26 @@ export function applyBackendSettings(settings) {
     if (gp.cameraPosition)  stored.handtracking.settings.cameraPosition = gp.cameraPosition;
   }
 
-  // ── AI assistant settings (settings.ai — per-profile block) ─────────────────
-  // null/absent means the active profile has no key → assistant disabled.
-  // The existing `if (!apiKey)` guards in useAIAssistant handle the disable path.
+  // ── AI assistant settings (settings.ai — legacy per-profile block) ──────────
+  // AI config is now household-level (synced via the shared settings); only apply
+  // a per-profile block when it actually carries a key, and never let it clobber
+  // an already-stored (household-hydrated) value with empty.
   const ai = settings.ai;
-  if (ai !== undefined) {
+  if (ai && ai.apiKey) {
+    const prev = stored.aiAssistant?.settings || {};
     stored.aiAssistant = {
-      enabled:         ai ? (ai.enabled ?? false) : false,
+      enabled:         ai.enabled ?? stored.aiAssistant?.enabled ?? true,
       settingsVersion: 2,
       settings: {
-        ...(stored.aiAssistant?.settings || {}),
-        name:               ai?.name               || 'Mirror',
-        apiKey:             ai?.apiKey             || '',
-        chatModel:          ai?.chatModel          || 'gpt-4o',
-        realtimeModel:      ai?.realtimeModel      || 'gpt-4o-realtime-preview-2024-12-17',
-        voice:              ai?.voice              || 'alloy',
-        elevenLabsKey:      ai?.elevenLabsKey      || '',
-        elevenLabsVoiceId:  ai?.elevenLabsVoiceId  || '',
-        showRawTranscripts: ai?.showRawTranscripts ?? false,
+        ...prev,
+        name:               ai.name               || prev.name               || 'Mirror',
+        apiKey:             ai.apiKey             || prev.apiKey             || '',
+        chatModel:          ai.chatModel          || prev.chatModel          || 'gpt-4o',
+        realtimeModel:      ai.realtimeModel      || prev.realtimeModel      || 'gpt-4o-realtime-preview-2024-12-17',
+        voice:              ai.voice              || prev.voice              || 'alloy',
+        elevenLabsKey:      ai.elevenLabsKey      || prev.elevenLabsKey      || '',
+        elevenLabsVoiceId:  ai.elevenLabsVoiceId  || prev.elevenLabsVoiceId  || '',
+        showRawTranscripts: ai.showRawTranscripts ?? prev.showRawTranscripts ?? false,
       },
     };
   }

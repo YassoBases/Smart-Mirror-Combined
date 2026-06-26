@@ -1,10 +1,11 @@
-// Phase 3: outfit suggest (mocked Anthropic), render (mocked Replicate + cache),
+// Phase 3: outfit suggest (mocked OpenAI), render (mocked Replicate + cache),
 // feedback → train threshold, context, and metrics.
 
-jest.mock("../lib/anthropic", () => ({
-  isConfigured: jest.fn(() => true),
+jest.mock("../lib/openai", () => ({
+  isConfigured: jest.fn(async () => true),
   suggestOutfits: jest.fn(),
   generateOutfits: jest.fn(),
+  resolveKey: jest.fn(async () => "test-key"),
   MODEL: "test-model",
 }));
 jest.mock("../lib/replicate", () => ({
@@ -21,7 +22,7 @@ jest.mock("../lib/pref_client", () => ({
 
 const request = require("supertest");
 const app = require("../src/app");
-const anthropic = require("../lib/anthropic");
+const openai = require("../lib/openai");
 const replicate = require("../lib/replicate");
 const prefClient = require("../lib/pref_client");
 const { crossesTrainThreshold } = require("../src/controllers/wardrobeController");
@@ -57,7 +58,7 @@ describe("outfit/suggest", () => {
     const topId = await makeItem("top");
     const bottomId = await makeItem("bottom");
 
-    anthropic.suggestOutfits.mockResolvedValueOnce({
+    openai.suggestOutfits.mockResolvedValueOnce({
       candidates: [
         { itemIds: [topId, bottomId, 99999], reasoning: "henley + chinos", confidence: 0.9 },
       ],
@@ -65,7 +66,7 @@ describe("outfit/suggest", () => {
 
     const res = await auth(request(app).post(`${base()}/outfit/suggest`)).send({ count: 1 });
     expect(res.status).toBe(200);
-    expect(anthropic.suggestOutfits).toHaveBeenCalledTimes(1);
+    expect(openai.suggestOutfits).toHaveBeenCalledTimes(1);
     expect(res.body.candidates).toHaveLength(1);
     expect(res.body.candidates[0].itemIds).toEqual([topId, bottomId]); // 99999 dropped
     expect(res.body.context).toHaveProperty("season");
@@ -73,7 +74,7 @@ describe("outfit/suggest", () => {
   });
 
   test("falls back to local heuristic when Claude throws", async () => {
-    anthropic.suggestOutfits.mockRejectedValueOnce(new Error("boom"));
+    openai.suggestOutfits.mockRejectedValueOnce(new Error("boom"));
     const res = await auth(request(app).post(`${base()}/outfit/suggest`)).send({});
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.candidates)).toBe(true);
@@ -83,7 +84,7 @@ describe("outfit/suggest", () => {
   test("re-ranks by pref score when available", async () => {
     const topId = await makeItem("top");
     const bottomId = await makeItem("bottom");
-    anthropic.suggestOutfits.mockResolvedValueOnce({
+    openai.suggestOutfits.mockResolvedValueOnce({
       candidates: [
         { itemIds: [topId], reasoning: "a", confidence: 0.5 },
         { itemIds: [bottomId], reasoning: "b", confidence: 0.5 },
@@ -98,7 +99,7 @@ describe("outfit/suggest", () => {
   test("threads the chosen occasion into context", async () => {
     const topId = await makeItem("top");
     const bottomId = await makeItem("bottom");
-    anthropic.suggestOutfits.mockResolvedValueOnce({
+    openai.suggestOutfits.mockResolvedValueOnce({
       candidates: [{ itemIds: [topId, bottomId], reasoning: "r", confidence: 0.9 }],
     });
     const res = await auth(request(app).post(`${base()}/outfit/suggest`)).send({
@@ -107,7 +108,7 @@ describe("outfit/suggest", () => {
     });
     expect(res.status).toBe(200);
     // The stylist receives the occasion in its context...
-    const arg = anthropic.suggestOutfits.mock.calls[0][0];
+    const arg = openai.suggestOutfits.mock.calls[0][0];
     expect(arg.context.occasion).toBe("formal");
     // ...and it is echoed back so the app can show it / store it in feedback.
     expect(res.body.context.occasion).toBe("formal");
@@ -116,7 +117,7 @@ describe("outfit/suggest", () => {
 
 describe("outfit/generate", () => {
   test("invents outfits with shopping links; no image when gen unconfigured", async () => {
-    anthropic.generateOutfits.mockResolvedValueOnce({
+    openai.generateOutfits.mockResolvedValueOnce({
       candidates: [
         {
           items: [
@@ -138,7 +139,7 @@ describe("outfit/generate", () => {
       occasion: "casual",
     });
     expect(res.status).toBe(200);
-    expect(anthropic.generateOutfits).toHaveBeenCalledTimes(1);
+    expect(openai.generateOutfits).toHaveBeenCalledTimes(1);
     const item = res.body.candidates[0].items[0];
     expect(item.searchUrl).toContain("tbm=shop");
     expect(item.searchUrl.toLowerCase()).toContain("navy");
@@ -147,7 +148,7 @@ describe("outfit/generate", () => {
   });
 
   test("503 when the stylist is not configured", async () => {
-    anthropic.isConfigured.mockReturnValueOnce(false);
+    openai.isConfigured.mockReturnValueOnce(false);
     const res = await auth(request(app).post(`${base()}/outfit/generate`)).send({});
     expect(res.status).toBe(503);
   });

@@ -70,6 +70,24 @@ async function getOne(req, res, next) {
   }
 }
 
+// PATCH /api/profiles/:id — edit name/email.
+async function update(req, res, next) {
+  try {
+    const profile = await profileService.getProfile(Number(req.params.id));
+    if (profile.household_id !== req.account.householdId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const { name, email } = req.body || {};
+    if (name !== undefined && (!name || !String(name).trim())) {
+      return res.status(400).json({ error: "Profile name cannot be empty" });
+    }
+    const updated = await profileService.updateProfile(profile.id, { name, email });
+    res.json({ profile: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function remove(req, res, next) {
   try {
     const profile = await profileService.getProfile(Number(req.params.id));
@@ -191,6 +209,7 @@ module.exports = {
   create,
   list,
   getOne,
+  update,
   setMirror,
   getByMirrorId,
   remove,
