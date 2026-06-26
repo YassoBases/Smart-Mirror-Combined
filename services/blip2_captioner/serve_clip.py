@@ -46,11 +46,21 @@ def _load():
 
 
 def _dominant_colors(img: Image.Image):
-    small = img.convert("RGB").resize((48, 48))
-    counts = Counter(small.getdata()).most_common(3)
+    """Alpha-aware dominant colours: ignore transparent (background-removed) and
+    near-white padding pixels so the garment's real colour wins instead of the
+    (black-when-flattened) removed background."""
+    rgba = img.convert("RGBA").resize((64, 64))
+    pixels = [
+        (r, g, b)
+        for (r, g, b, a) in rgba.getdata()
+        if a >= 128 and not (r > 244 and g > 244 and b > 244)
+    ]
+    if not pixels:
+        return {"primaryColor": None, "secondaryColors": []}
+    counts = Counter(pixels).most_common(3)
     to_hex = lambda c: "#{:02X}{:02X}{:02X}".format(*c)
     return {
-        "primaryColor": to_hex(counts[0][0]) if counts else None,
+        "primaryColor": to_hex(counts[0][0]),
         "secondaryColors": [to_hex(c) for c, _ in counts[1:]],
     }
 
@@ -74,13 +84,15 @@ async def caption(image: UploadFile = File(...), authorization: str = Header(def
         raise HTTPException(status_code=401, detail="invalid token")
     data = await image.read()
     try:
-        img = Image.open(io.BytesIO(data)).convert("RGB")
+        img = Image.open(io.BytesIO(data))  # keep alpha if present (nobg PNG)
     except Exception:
         raise HTTPException(status_code=400, detail="invalid image")
 
+    colors = _dominant_colors(img)  # alpha-aware, before flattening
+    rgb = img.convert("RGB")
+
     model, sets = _load()
-    heads = model.predict_multi(img, sets)  # merged across head-sets
-    colors = _dominant_colors(img)
+    heads = model.predict_multi(rgb, sets)  # merged across head-sets
 
     category = heads.get("category", "top")
     formality = int(heads.get("formality", "3"))
